@@ -22,8 +22,6 @@ services:
           property: connectionString
 
 databases:
-  # Managed PostgreSQL DB
+  # Managed PostgreSQL DB (Free Tier)
   - name: jobpilot-db
-    databaseName: jobpilot
-    user: postgres
     plan: free
