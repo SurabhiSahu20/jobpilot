@@ -35,6 +35,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Internal server error occurred' });
 });
 
-app.listen(PORT, () => {
-  console.log(`JobPilot server successfully started on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`JobPilot server successfully started on port ${PORT}`);
+  });
+}
+
+export default app;
