@@ -216,12 +216,16 @@ export const query = async (text: string, params?: any[]): Promise<any> => {
   // 7. Update Job Status: UPDATE jobs SET status = $1, updated_at = ... WHERE id = $2 AND user_id = $3 RETURNING *
   if (lowerText.includes('update jobs') && lowerText.includes('set status =')) {
     const status = params?.[0];
-    const id = params?.[1];
-    const userId = params?.[2];
+    const notes = params?.[1];
+    const id = params?.[2];
+    const userId = params?.[3];
 
     const jobIndex = db.jobs.findIndex(j => j.id === Number(id) && j.user_id === Number(userId));
     if (jobIndex !== -1) {
       db.jobs[jobIndex].status = status;
+      if (notes !== undefined && notes !== null) {
+        db.jobs[jobIndex].notes = notes;
+      }
       db.jobs[jobIndex].updated_at = new Date().toISOString();
       saveMockDb(db);
       return {

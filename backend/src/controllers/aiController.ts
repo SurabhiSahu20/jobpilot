@@ -63,10 +63,24 @@ const generateMockAiResult = (resumeText: string, jobRole: string, jobCompany: s
   // Clamp matchPercent between 45 and 95 for realistic feels
   matchPercent = Math.max(45, Math.min(95, matchPercent));
 
+  const skillMatchPercent = matchPercent;
+  const experienceMatchPercent = Math.max(50, Math.min(90, Math.floor(Math.random() * 20) + 60));
+  const educationMatchPercent = Math.random() > 0.3 ? 100 : 0;
+  const keywordMatchPercent = Math.max(40, Math.min(95, Math.floor(Math.random() * 25) + 55));
+  const atsCompatibilityScore = Math.round((skillMatchPercent + experienceMatchPercent + educationMatchPercent + keywordMatchPercent) / 4);
+
   return {
     matchPercent,
+    skillMatchPercent,
+    experienceMatchPercent,
+    educationMatchPercent,
+    keywordMatchPercent,
+    atsCompatibilityScore,
     missingSkills: missing.length > 0 ? missing : ['CI/CD', 'Testing'],
     matchingSkills: matching,
+    recommendedLearning: missing.length > 0 
+      ? missing.map(s => `Build a project or take a tutorial to master ${s}.`) 
+      : ['Deepen understanding of production deployment pipelines.'],
     summary: `The candidate has a solid foundation in ${matching.slice(0, 3).join(', ') || 'software development'}. To increase compatibility with the role of ${jobRole} at ${jobCompany}, focus on acquiring or highlighting skills in ${missing.slice(0, 2).join(', ') || 'production deployment'}.`
   };
 };
@@ -121,9 +135,15 @@ export const getResumeMatch = async (req: AuthRequest, res: Response) => {
       
       Provide your analysis strictly in this JSON format:
       {
-        "matchPercent": <integer value between 0 and 100 representing resume matching rate>,
+        "matchPercent": <integer overall match percentage between 0 and 100>,
+        "skillMatchPercent": <integer skill compatibility percentage between 0 and 100>,
+        "experienceMatchPercent": <integer experience alignment percentage between 0 and 100>,
+        "educationMatchPercent": <integer education criteria match percentage between 0 and 100>,
+        "keywordMatchPercent": <integer keyword overlap percentage between 0 and 100>,
+        "atsCompatibilityScore": <integer ATS layout & optimization score between 0 and 100>,
         "missingSkills": [<array of missing key technologies, frameworks, or languages required by the job but absent from resume>],
         "matchingSkills": [<array of matching skills found in both>],
+        "recommendedLearning": [<array of 2-3 specific learning topics or course recommendations to bridge the missing skills gap>],
         "summary": "<a concise 2-3 sentence overview of candidate match strength and key development recommendations>"
       }
     `;

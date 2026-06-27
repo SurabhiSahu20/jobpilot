@@ -48,3 +48,44 @@ export const scrapeWellfound = (): any => {
     return null;
   }
 };
+
+export const scrapeWellfoundSearchResults = (): any[] => {
+  try {
+    const jobs: any[] = [];
+    const cards = document.querySelectorAll('[data-test="JobResultCard"], [class*="jobCard"], [class*="JobCard"]');
+    
+    cards.forEach(card => {
+      const titleEl = card.querySelector('[class*="title"], [class*="jobTitle"], a[href*="/jobs/"]');
+      const role = titleEl ? titleEl.textContent?.trim() : '';
+      let apply_link = titleEl ? (titleEl.getAttribute('href') || '') : '';
+      if (apply_link && !apply_link.startsWith('http')) {
+        apply_link = `https://wellfound.com${apply_link}`;
+      }
+
+      const companyEl = card.querySelector('[class*="companyName"], [class*="startupName"], [class*="name"]');
+      const company = companyEl ? companyEl.textContent?.trim() : '';
+
+      const locationEl = card.querySelector('[class*="location"], [class*="tag"]');
+      const location = locationEl ? locationEl.textContent?.trim() : '';
+
+      const salaryEl = card.querySelector('[class*="salary"]');
+      const salary = salaryEl ? salaryEl.textContent?.trim() : '';
+
+      if (role && company && apply_link) {
+        jobs.push({
+          role,
+          company,
+          location: location || 'Remote',
+          salary: salary || 'Not Specified',
+          apply_link,
+          source: 'Wellfound'
+        });
+      }
+    });
+
+    return jobs;
+  } catch (error) {
+    console.error('Wellfound list scraper error:', error);
+    return [];
+  }
+};

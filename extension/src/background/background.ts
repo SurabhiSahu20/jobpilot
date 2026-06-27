@@ -1,4 +1,11 @@
 import { getCachedJobs } from '../services/indexeddb.js';
+import { providers } from './providers.js';
+
+// Configure extension action click to open side panel
+if (typeof chrome !== 'undefined' && (chrome as any).sidePanel && (chrome as any).sidePanel.setPanelBehavior) {
+  (chrome as any).sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err: any) => console.log('Error setting side panel behavior:', err));
+}
 
 // Initialize alarms on installation
 chrome.runtime.onInstalled.addListener(() => {
@@ -60,4 +67,201 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true; // Keep connection open
   }
+
+  if (message.action === 'FETCH_LINKEDIN_JOB_DETAIL') {
+    const { jobId } = message;
+    fetch(`https://www.linkedin.com/jobs-guest/jobs/api/jobDetail/${jobId}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.text();
+      })
+      .then((html) => {
+        sendResponse({ success: true, html });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true; // Keep connection open for async response
+  }
+
+  if (message.action === 'FETCH_URL') {
+    const { url } = message;
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.text();
+      })
+      .then((html) => {
+        sendResponse({ success: true, html });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message });
+      });
+    return true; // Keep connection open for async response
+  }
+
+  if (message.action === 'SEARCH_AND_MATCH_JOBS') {
+    const { keyword } = message;
+
+    chrome.storage.local.get(['auth_token'], (result) => {
+      const token = result.auth_token;
+      if (!token) {
+        sendResponse({ success: false, error: 'User is not logged in. Please log in first.' });
+        return;
+      }
+
+      // Query all pluggable providers in parallel
+      Promise.all(providers.map(p => p.search(keyword)))
+        .then(async (providerResults) => {
+          // Flatten results from all platforms
+          const rawJobs = providerResults.flat();
+          if (rawJobs.length === 0) {
+            sendResponse({ success: true, jobs: [] });
+            return;
+          }
+
+          // Process top 8 jobs in parallel to avoid rate limits
+          const jobsToProcess = rawJobs.slice(0, 8);
+          const processedJobs = await Promise.all(
+            jobsToProcess.map(async (job) => {
+              try {
+                // Determine backend URL (local or Render hosted fallback)
+                let matchRes = await fetch('http://localhost:5001/api/ai/match', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  },
+                  body: JSON.stringify({
+                    jobRole: job.role,
+                    jobCompany: job.company,
+                    jobDescription: job.description || `Software role at ${job.company}`
+                  })
+                });
+
+                let matchData = { matchPercent: 50, summary: 'AI evaluation skipped.' };
+                if (matchRes.ok) {
+                  matchData = await matchRes.json();
+                } else {
+                  // Try hosted API if local dev server is not running
+                  const hostedRes = await fetch('https://jobpilot-backend-cjoz.onrender.com/api/ai/match', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                      jobRole: job.role,
+                      jobCompany: job.company,
+                      jobDescription: job.description || `Software role at ${job.company}`
+                    })
+                  });
+                  if (hostedRes.ok) {
+                    matchData = await hostedRes.json();
+                  }
+                }
+
+                return {
+                  ...job,
+                  matchPercent: matchData.matchPercent,
+                  summary: matchData.summary,
+                  missingSkills: (matchData as any).missingSkills || [],
+                  matchingSkills: (matchData as any).matchingSkills || [],
+                  recommendedLearning: (matchData as any).recommendedLearning || []
+                };
+              } catch (e: any) {
+                console.error('Error matching job in background search:', job.role, e);
+                return {
+                  ...job,
+                  matchPercent: 50,
+                  summary: 'Failed to generate AI match profile.',
+                  missingSkills: [],
+                  matchingSkills: [],
+                  recommendedLearning: []
+                };
+              }
+            })
+          );
+
+          // Sort jobs by match percent descending
+          processedJobs.sort((a, b) => b.matchPercent - a.matchPercent);
+
+          sendResponse({ success: true, jobs: processedJobs });
+        })
+        .catch((err) => {
+          sendResponse({ success: false, error: err.message });
+        });
+    });
+    return true; // Keep connection open for async response
+  }
 });
+
+export const parseLinkedInSearchHTML = (html: string): any[] => {
+  const jobs: any[] = [];
+  const cardRegex = /<li[^>]*>([\s\S]*?)<\/li>/g;
+  let match;
+
+  while ((match = cardRegex.exec(html)) !== null) {
+    const cardContent = match[1];
+
+    const linkRegex = /href="([^"]*?currentJobId=(\d+)[^"]*?|[^"]*?\/view\/.*?(\d+)\/?)"/;
+    const linkMatch = cardContent.match(linkRegex);
+    let jobId = '';
+    let applyLink = '';
+
+    if (linkMatch) {
+      jobId = linkMatch[2] || linkMatch[3];
+      applyLink = linkMatch[1];
+      if (applyLink && !applyLink.startsWith('http')) {
+        applyLink = `https://www.linkedin.com${applyLink}`;
+      }
+    }
+
+    if (!jobId) {
+      const dataIdMatch = cardContent.match(/data-id="(\d+)"/);
+      if (dataIdMatch) jobId = dataIdMatch[1];
+    }
+
+    if (!jobId) continue;
+
+    const titleRegex = /<h3[^>]*class="[^"]*?base-search-card__title[^"]*"[^>]*>\s*([\s\S]*?)\s*<\/h3>/;
+    const titleMatch = cardContent.match(titleRegex);
+    let role = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+
+    const companyRegex = /<h4[^>]*class="[^"]*?base-search-card__subtitle[^"]*"[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>|<h4[^>]*class="[^"]*?base-search-card__subtitle[^"]*"[^>]*>\s*([\s\S]*?)\s*<\/h4>/;
+    const companyMatch = cardContent.match(companyRegex);
+    let company = '';
+    if (companyMatch) {
+      company = (companyMatch[1] || companyMatch[2]).replace(/<[^>]*>/g, '').trim();
+    }
+
+    const locationRegex = /<span[^>]*class="[^"]*?job-search-card__location[^"]*"[^>]*>\s*([\s\S]*?)\s*<\/span>/;
+    const locationMatch = cardContent.match(locationRegex);
+    let location = locationMatch ? locationMatch[1].replace(/<[^>]*>/g, '').trim() : 'Remote';
+
+    if (role && company) {
+      jobs.push({
+        jobId,
+        role,
+        company,
+        location,
+        apply_link: applyLink || `https://www.linkedin.com/jobs/view/${jobId}/`,
+        source: 'LinkedIn'
+      });
+    }
+  }
+
+  return jobs;
+};
+
+export const extractLinkedInDescription = (html: string): string => {
+  const descRegex = /<div[^>]*class="[^"]*?description__text[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+  const match = html.match(descRegex);
+  if (match) {
+    return match[1].replace(/<[^>]*>/g, '').trim();
+  }
+
+  const contentRegex = /<div[^>]*class="[^"]*?show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/;
+  const contentMatch = html.match(contentRegex);
+  return contentMatch ? contentMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+};

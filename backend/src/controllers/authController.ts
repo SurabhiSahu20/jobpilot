@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/db.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { parseResume } from '../services/resumeParser.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'jobpilot_super_secret_jwt_key_2026';
 const SALT_ROUNDS = 10;
@@ -133,5 +134,40 @@ export const updateResume = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Update resume error:', error);
     return res.status(500).json({ error: 'Failed to update resume' });
+  }
+};
+
+// Upload & Parse PDF/DOCX Resume
+export const uploadResumeFile = async (req: AuthRequest, res: Response) => {
+  const userId = req.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No resume file uploaded.' });
+  }
+
+  try {
+    const resumeText = await parseResume(req.file.buffer, req.file.mimetype);
+
+    // Save extracted text to database
+    const result = await query(
+      'UPDATE users SET resume_text = $1 WHERE id = $2 RETURNING id, resume_text',
+      [resumeText, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({
+      message: 'Resume file parsed and updated successfully',
+      resume_text: result.rows[0].resume_text
+    });
+  } catch (error: any) {
+    console.error('Resume upload/parsing error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to parse and upload resume.' });
   }
 };

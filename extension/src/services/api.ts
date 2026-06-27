@@ -1,7 +1,24 @@
 import { getAuthToken } from './indexeddb.js';
 import { Job, MatchResponse, InterviewPrepResponse, CoverLetterResponse } from '../types/index.js';
 
-const BASE_URL = 'http://localhost:5001/api';
+let activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
+
+// Dynamic resolver to connect to local server if it is active
+const detectBackend = async () => {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const res = await fetch('http://localhost:5001/health', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      activeBaseUrl = 'http://localhost:5001/api';
+      console.log('✈️ JobPilot: Local backend detected at http://localhost:5001');
+    }
+  } catch (e) {
+    console.log('✈️ JobPilot: Local backend inactive. Defaulting to hosted Render server.');
+  }
+};
+detectBackend();
 
 const getHeaders = async (includeAuth = true): Promise<HeadersInit> => {
   const headers: Record<string, string> = {
@@ -24,7 +41,7 @@ export const apiRequest = async <T>(
   body?: any,
   includeAuth = true
 ): Promise<T> => {
-  const url = `${BASE_URL}${endpoint}`;
+  const url = `${activeBaseUrl}${endpoint}`;
   const headers = await getHeaders(includeAuth);
 
   const config: RequestInit = {
@@ -120,4 +137,26 @@ export const fetchCoverLetter = (jobRole: string, jobCompany: string, jobDescrip
     jobCompany,
     jobDescription,
   });
+};
+
+export const uploadResumeFile = async (file: File): Promise<{ message: string; resume_text: string }> => {
+  const token = await getAuthToken();
+  const url = `${activeBaseUrl}/auth/resume-upload`;
+  
+  const formData = new FormData();
+  formData.append('resume', file);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    },
+    body: formData
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP error! status: ${response.status}`);
+  }
+  return data;
 };

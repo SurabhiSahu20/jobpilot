@@ -50,3 +50,45 @@ export const scrapeNaukri = (): any => {
     return null;
   }
 };
+
+export const scrapeNaukriSearchResults = (): any[] => {
+  try {
+    const jobs: any[] = [];
+    const cards = document.querySelectorAll('.cust-job-tuple, .jobTuple, article.jobTuple');
+    
+    cards.forEach(card => {
+      const titleEl = card.querySelector('a.title, .title, [class*="title"]');
+      const role = titleEl ? titleEl.textContent?.trim() : '';
+      const apply_link = titleEl ? (titleEl.getAttribute('href') || '') : '';
+
+      const companyEl = card.querySelector('.comp-name, a.comp-name, .companyName, .subTitle');
+      const company = companyEl ? companyEl.textContent?.trim() : '';
+
+      const locationEl = card.querySelector('.loc-wrap, .loc span, .location');
+      const location = locationEl ? locationEl.textContent?.trim() : '';
+
+      const expEl = card.querySelector('.exp-wrap, .exp span, .experience');
+      const experience = expEl ? expEl.textContent?.trim() : '';
+
+      const salaryEl = card.querySelector('.salary-wrap, .salary span, .salary');
+      const salary = salaryEl ? salaryEl.textContent?.trim() : '';
+
+      if (role && company && apply_link) {
+        jobs.push({
+          role,
+          company,
+          location: location || 'Not Specified',
+          experience: experience || 'Not Specified',
+          salary: salary || 'Not Specified',
+          apply_link,
+          source: 'Naukri'
+        });
+      }
+    });
+
+    return jobs;
+  } catch (error) {
+    console.error('Naukri list scraper error:', error);
+    return [];
+  }
+};

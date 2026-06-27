@@ -80,3 +80,40 @@ export const scrapeLinkedIn = (): any => {
     return null;
   }
 };
+
+export const scrapeLinkedInSearchResults = (): any[] => {
+  try {
+    const jobs: any[] = [];
+    const cards = document.querySelectorAll('[data-job-id]');
+    
+    cards.forEach(card => {
+      const jobId = card.getAttribute('data-job-id');
+      if (!jobId) return;
+
+      const titleEl = card.querySelector('.job-card-list__title, .job-card-container__link, a.job-card-list__title');
+      const role = titleEl ? titleEl.textContent?.trim() : '';
+
+      const companyEl = card.querySelector('.job-card-container__primary-description, .job-card-container__company-name, .job-card-list__company-name, .artdeco-entity-lockup__subtitle');
+      const company = companyEl ? companyEl.textContent?.trim() : '';
+
+      const locationEl = card.querySelector('.job-card-container__metadata-item, .job-card-list__metadata-item, .job-card-container__metadata-wrapper span');
+      const location = locationEl ? locationEl.textContent?.trim() : '';
+
+      if (role && company) {
+        jobs.push({
+          jobId,
+          role,
+          company,
+          location: location?.split('·')[0]?.trim() || 'Remote',
+          apply_link: `https://www.linkedin.com/jobs/view/${jobId}/`,
+          source: 'LinkedIn'
+        });
+      }
+    });
+
+    return jobs;
+  } catch (error) {
+    console.error('LinkedIn list scraper error:', error);
+    return [];
+  }
+};
