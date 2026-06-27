@@ -279,14 +279,28 @@ export const providers: JobSearchProvider[] = [
 // Helper to generate real search results from Remotive API when direct website scraping is restricted
 const getMockJobsForKeyword = async (keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> => {
   try {
-    const url = `https://remotive.com/api/remote-jobs?limit=5&search=${encodeURIComponent(keyword)}`;
+    // Specifically fetch from the software development category to guarantee technical developer roles
+    const url = `https://remotive.com/api/remote-jobs?category=software-development&limit=30`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Remotive fetch failed');
     const data = await res.json();
     const jobs: RawSearchResult[] = [];
     
     if (data.jobs && Array.isArray(data.jobs)) {
-      for (const item of data.jobs.slice(0, 3)) {
+      const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      
+      // Filter jobs whose title matches key query terms
+      let filtered = data.jobs.filter((item: any) => {
+        const titleLower = item.title.toLowerCase();
+        return words.some(word => titleLower.includes(word));
+      });
+      
+      // Fallback to top software development roles if no keyword matches are found
+      if (filtered.length === 0) {
+        filtered = data.jobs;
+      }
+      
+      for (const item of filtered.slice(0, 3)) {
         const skills: string[] = ['Software Engineering'];
         if (item.tags) {
           skills.push(...item.tags);
