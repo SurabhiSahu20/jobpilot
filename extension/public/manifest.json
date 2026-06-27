@@ -16,7 +16,10 @@
     "*://*.indeed.com/*",
     "*://*.naukri.com/*",
     "*://*.wellfound.com/*",
-    "http://localhost:5001/*"
+    "http://localhost:5001/*",
+    "https://jobpilot-backend-cjoz.onrender.com/*",
+    "*://*.duckduckgo.com/*",
+    "*://*.remotive.com/*"
   ],
   "icons": {
     "128": "assets/icon-128.png"
