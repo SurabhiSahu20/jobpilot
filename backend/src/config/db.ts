@@ -71,7 +71,7 @@ if (!useMockDb) {
   console.log('Connecting to PostgreSQL using connection string...');
   pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('render.com') || process.env.DATABASE_URL?.includes('supabase')
+    ssl: process.env.DATABASE_URL?.includes('render.com') || process.env.DATABASE_URL?.includes('supabase') || !process.env.DATABASE_URL?.includes('localhost')
       ? { rejectUnauthorized: false }
       : false
   });
@@ -79,6 +79,23 @@ if (!useMockDb) {
   pool.on('error', (err) => {
     console.error('Unexpected error on idle PostgreSQL client', err);
   });
+
+  // Automatically initialize database schema
+  const initDb = async () => {
+    try {
+      const schemaPath = path.join(process.cwd(), 'src/database/schema.sql');
+      if (fs.existsSync(schemaPath)) {
+        const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+        await pool!.query(schemaSql);
+        console.log('PostgreSQL database schema initialized successfully.');
+      } else {
+        console.warn('PostgreSQL schema.sql not found at path:', schemaPath);
+      }
+    } catch (err) {
+      console.error('Error initializing PostgreSQL schema:', err);
+    }
+  };
+  initDb();
 } else {
   console.log('Database initialized in Mock JSON mode. Path:', dbStorePath);
 }
