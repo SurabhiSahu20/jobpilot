@@ -184,10 +184,10 @@ export class LinkedInProvider implements JobSearchProvider {
         }
       }
       if (jobs.length > 0) return jobs;
-      return getMockJobsForKeyword(keyword, 'LinkedIn');
+      return await getMockJobsForKeyword(keyword, 'LinkedIn');
     } catch (error) {
       console.warn('LinkedIn search provider failed. Using search engine fallback.', error);
-      return getMockJobsForKeyword(keyword, 'LinkedIn');
+      return await getMockJobsForKeyword(keyword, 'LinkedIn');
     }
   }
 }
@@ -241,7 +241,7 @@ export class IndeedProvider implements JobSearchProvider {
       throw new Error('No jobs parsed from Indeed page.');
     } catch (error) {
       console.log('Indeed Provider: Scrape blocked. Utilizing search engine parser.');
-      return searchViaDuckDuckGo(keyword, 'Indeed');
+      return await getMockJobsForKeyword(keyword, 'Indeed');
     }
   }
 }
@@ -253,7 +253,7 @@ export class NaukriProvider implements JobSearchProvider {
   async search(keyword: string): Promise<RawSearchResult[]> {
     const results = await searchViaDuckDuckGo(keyword, 'Naukri');
     if (results.length > 0) return results;
-    return getMockJobsForKeyword(keyword, 'Naukri');
+    return await getMockJobsForKeyword(keyword, 'Naukri');
   }
 }
 
@@ -264,7 +264,7 @@ export class WellfoundProvider implements JobSearchProvider {
   async search(keyword: string): Promise<RawSearchResult[]> {
     const results = await searchViaDuckDuckGo(keyword, 'Wellfound');
     if (results.length > 0) return results;
-    return getMockJobsForKeyword(keyword, 'Wellfound');
+    return await getMockJobsForKeyword(keyword, 'Wellfound');
   }
 }
 
@@ -276,53 +276,41 @@ export const providers: JobSearchProvider[] = [
   new WellfoundProvider()
 ];
 
-// Helper to generate realistic search results when direct scraping is restricted
-const getMockJobsForKeyword = (keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): RawSearchResult[] => {
-  const normalizedKeyword = keyword.toLowerCase();
-  const roleName = keyword.trim().charAt(0).toUpperCase() + keyword.trim().slice(1);
-  
-  const companies = source === 'Indeed' 
-    ? ['Stripe', 'Google', 'Meta'] 
-    : source === 'Naukri' 
-      ? ['TCS', 'Infosys', 'Wipro'] 
-      : source === 'Wellfound' 
-        ? ['Brex', 'Retool', 'Figma'] 
-        : ['Linear', 'Vercel', 'Supabase'];
+// Helper to generate real search results from Remotive API when direct website scraping is restricted
+const getMockJobsForKeyword = async (keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> => {
+  try {
+    const url = `https://remotive.com/api/remote-jobs?limit=5&search=${encodeURIComponent(keyword)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Remotive fetch failed');
+    const data = await res.json();
+    const jobs: RawSearchResult[] = [];
+    
+    if (data.jobs && Array.isArray(data.jobs)) {
+      for (const item of data.jobs.slice(0, 3)) {
+        const skills: string[] = ['Software Engineering'];
+        if (item.tags) {
+          skills.push(...item.tags);
+        }
         
-  const companyName = companies[Math.floor(Math.random() * companies.length)];
-  
-  const techStack = normalizedKeyword.includes('frontend') || normalizedKeyword.includes('react')
-    ? ['React', 'TypeScript', 'Tailwind CSS', 'Next.js', 'Framer Motion']
-    : ['Node.js', 'Express', 'TypeScript', 'PostgreSQL', 'Docker', 'AWS'];
-
-  const mockDescription = `We are looking for an exceptional ${roleName} to join our engineering organization. 
-  You will design and build robust features, work closely with product design, and improve performance. 
-  Required skills include ${techStack.slice(0, 3).join(', ')}, and experience building modern web apps.`;
-
-  // Dynamic live search URLs
-  let apply_link = '';
-  if (source === 'LinkedIn') {
-    apply_link = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(keyword)}`;
-  } else if (source === 'Indeed') {
-    apply_link = `https://www.indeed.com/jobs?q=${encodeURIComponent(keyword)}`;
-  } else if (source === 'Naukri') {
-    apply_link = `https://www.naukri.com/${encodeURIComponent(keyword.replace(/\s+/g, '-'))}-jobs`;
-  } else if (source === 'Wellfound') {
-    apply_link = `https://wellfound.com/jobs?q=${encodeURIComponent(keyword)}`;
-  }
-
-  return [
-    {
-      jobId: `${source.toLowerCase()}-${Math.floor(Math.random() * 100000)}`,
-      role: `${roleName}`,
-      company: `${companyName}`,
-      location: source === 'Wellfound' ? 'San Francisco, CA (Hybrid)' : 'Remote',
-      salary: source === 'Wellfound' ? '$120,000 - $160,000' : 'Not Specified',
-      experience: '2-5 years',
-      skills: techStack,
-      description: mockDescription,
-      apply_link,
-      source
+        const description = (item.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        jobs.push({
+          jobId: `remotive-${item.id}`,
+          role: item.title,
+          company: item.company_name,
+          location: item.candidate_required_location || 'Remote',
+          salary: item.salary || 'Not Specified',
+          experience: 'Not Specified',
+          skills: skills.slice(0, 5),
+          description: description.slice(0, 500) + '...',
+          apply_link: item.url,
+          source
+        });
+      }
     }
-  ];
+    return jobs;
+  } catch (error) {
+    console.error('Failed to fetch Remotive fallback jobs:', error);
+    return [];
+  }
 };
