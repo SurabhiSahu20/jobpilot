@@ -16,6 +16,92 @@ export interface JobSearchProvider {
   search(keyword: string): Promise<RawSearchResult[]>;
 }
 
+// Shared cache variables to fetch Remotive fallback jobs once and partition them across providers
+let remotivePromise: Promise<any[]> | null = null;
+let currentCacheKeyword = '';
+let cachedJobsList: any[] = [];
+
+async function getRemotiveJobs(keyword: string): Promise<any[]> {
+  if (currentCacheKeyword === keyword && cachedJobsList.length > 0) {
+    return cachedJobsList;
+  }
+  
+  if (remotivePromise && currentCacheKeyword === keyword) {
+    return remotivePromise;
+  }
+  
+  currentCacheKeyword = keyword;
+  remotivePromise = (async () => {
+    try {
+      const url = `https://remotive.com/api/remote-jobs?category=software-development&limit=40`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Remotive fetch failed');
+      const data = await res.json();
+      if (data.jobs && Array.isArray(data.jobs)) {
+        const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        
+        // Filter jobs matching key query terms
+        let filtered = data.jobs.filter((item: any) => {
+          const titleLower = item.title.toLowerCase();
+          return words.some(word => titleLower.includes(word));
+        });
+        
+        if (filtered.length === 0) {
+          filtered = data.jobs;
+        }
+        cachedJobsList = filtered;
+        return filtered;
+      }
+      cachedJobsList = [];
+      return [];
+    } catch (e) {
+      console.error('Error fetching Remotive fallback:', e);
+      cachedJobsList = [];
+      return [];
+    }
+  })();
+  
+  return remotivePromise;
+}
+
+// Partition the cached Remotive jobs to ensure unique, non-duplicate roles per source platform
+async function getPartitionedJobs(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
+  const allJobs = await getRemotiveJobs(keyword);
+  const results: RawSearchResult[] = [];
+  
+  // Decide index offsets based on source
+  let offset = 0;
+  if (source === 'Indeed') offset = 1;
+  else if (source === 'Naukri') offset = 2;
+  else if (source === 'Wellfound') offset = 3;
+  
+  let count = 0;
+  for (let i = offset; i < allJobs.length && count < 3; i += 4) {
+    const item = allJobs[i];
+    const skills: string[] = ['Software Engineering'];
+    if (item.tags) {
+      skills.push(...item.tags);
+    }
+    const description = (item.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    results.push({
+      jobId: `remotive-${source.toLowerCase()}-${item.id}`,
+      role: item.title,
+      company: item.company_name,
+      location: item.candidate_required_location || 'Remote',
+      salary: item.salary || 'Not Specified',
+      experience: 'Not Specified',
+      skills: skills.slice(0, 5),
+      description: description.slice(0, 500) + '...',
+      apply_link: item.url,
+      source
+    });
+    count++;
+  }
+  
+  return results;
+}
+
 // Helper to query search engines for real live postings when direct scraping is restricted
 async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
   try {
@@ -39,7 +125,6 @@ async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed
     const html = await res.text();
     
     const results: RawSearchResult[] = [];
-    // DuckDuckGo HTML layout result class: result__a
     const resultRegex = /<a[^>]*class="[^"]*?result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
     let match;
     let count = 0;
@@ -184,10 +269,10 @@ export class LinkedInProvider implements JobSearchProvider {
         }
       }
       if (jobs.length > 0) return jobs;
-      return await getMockJobsForKeyword(keyword, 'LinkedIn');
+      return await getPartitionedJobs(keyword, 'LinkedIn');
     } catch (error) {
       console.warn('LinkedIn search provider failed. Using search engine fallback.', error);
-      return await getMockJobsForKeyword(keyword, 'LinkedIn');
+      return await getPartitionedJobs(keyword, 'LinkedIn');
     }
   }
 }
@@ -241,7 +326,7 @@ export class IndeedProvider implements JobSearchProvider {
       throw new Error('No jobs parsed from Indeed page.');
     } catch (error) {
       console.log('Indeed Provider: Scrape blocked. Utilizing search engine parser.');
-      return await getMockJobsForKeyword(keyword, 'Indeed');
+      return await getPartitionedJobs(keyword, 'Indeed');
     }
   }
 }
@@ -253,7 +338,7 @@ export class NaukriProvider implements JobSearchProvider {
   async search(keyword: string): Promise<RawSearchResult[]> {
     const results = await searchViaDuckDuckGo(keyword, 'Naukri');
     if (results.length > 0) return results;
-    return await getMockJobsForKeyword(keyword, 'Naukri');
+    return await getPartitionedJobs(keyword, 'Naukri');
   }
 }
 
@@ -264,7 +349,7 @@ export class WellfoundProvider implements JobSearchProvider {
   async search(keyword: string): Promise<RawSearchResult[]> {
     const results = await searchViaDuckDuckGo(keyword, 'Wellfound');
     if (results.length > 0) return results;
-    return await getMockJobsForKeyword(keyword, 'Wellfound');
+    return await getPartitionedJobs(keyword, 'Wellfound');
   }
 }
 
@@ -275,56 +360,3 @@ export const providers: JobSearchProvider[] = [
   new NaukriProvider(),
   new WellfoundProvider()
 ];
-
-// Helper to generate real search results from Remotive API when direct website scraping is restricted
-const getMockJobsForKeyword = async (keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> => {
-  try {
-    // Specifically fetch from the software development category to guarantee technical developer roles
-    const url = `https://remotive.com/api/remote-jobs?category=software-development&limit=30`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Remotive fetch failed');
-    const data = await res.json();
-    const jobs: RawSearchResult[] = [];
-    
-    if (data.jobs && Array.isArray(data.jobs)) {
-      const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      
-      // Filter jobs whose title matches key query terms
-      let filtered = data.jobs.filter((item: any) => {
-        const titleLower = item.title.toLowerCase();
-        return words.some(word => titleLower.includes(word));
-      });
-      
-      // Fallback to top software development roles if no keyword matches are found
-      if (filtered.length === 0) {
-        filtered = data.jobs;
-      }
-      
-      for (const item of filtered.slice(0, 3)) {
-        const skills: string[] = ['Software Engineering'];
-        if (item.tags) {
-          skills.push(...item.tags);
-        }
-        
-        const description = (item.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        
-        jobs.push({
-          jobId: `remotive-${item.id}`,
-          role: item.title,
-          company: item.company_name,
-          location: item.candidate_required_location || 'Remote',
-          salary: item.salary || 'Not Specified',
-          experience: 'Not Specified',
-          skills: skills.slice(0, 5),
-          description: description.slice(0, 500) + '...',
-          apply_link: item.url,
-          source
-        });
-      }
-    }
-    return jobs;
-  } catch (error) {
-    console.error('Failed to fetch Remotive fallback jobs:', error);
-    return [];
-  }
-};

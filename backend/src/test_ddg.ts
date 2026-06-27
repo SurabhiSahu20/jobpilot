@@ -1,21 +1,17 @@
-async function testRemotive() {
+async function testIndeedRss() {
   try {
-    const url = 'https://remotive.com/api/remote-jobs?limit=5&search=react';
-    const res = await fetch(url);
+    const url = 'https://www.indeed.com/rss?q=software+engineer';
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+      }
+    });
     console.log('Status:', res.status);
-    const data: any = await res.json();
-    console.log('Jobs count:', data.jobs ? data.jobs.length : 0);
-    if (data.jobs && data.jobs.length > 0) {
-      console.log('First job:', {
-        title: data.jobs[0].title,
-        company: data.jobs[0].company_name,
-        url: data.jobs[0].url,
-        location: data.jobs[0].candidate_required_location,
-        salary: data.jobs[0].salary
-      });
-    }
+    const text = await res.text();
+    console.log('Length:', text.length);
+    console.log('Content Snippet:', text.slice(0, 1000));
   } catch (e: any) {
     console.error('Error:', e.message);
   }
 }
-testRemotive();
+testIndeedRss();
