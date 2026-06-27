@@ -65,14 +65,18 @@ export const App: React.FC = () => {
     setForceDashboard(!detectedJob);
   };
 
+  const forceLogout = async () => {
+    await clearLocalStorageCache();
+    setToken(null);
+    setUser(null);
+    setHasResume(false);
+    setDetectedJob(null);
+    setForceDashboard(false);
+  };
+
   const handleLogout = async () => {
     if (confirm('Are you sure you want to log out?')) {
-      await clearLocalStorageCache();
-      setToken(null);
-      setUser(null);
-      setHasResume(false);
-      setDetectedJob(null);
-      setForceDashboard(false);
+      await forceLogout();
     }
   };
 
@@ -127,6 +131,7 @@ export const App: React.FC = () => {
               <Dashboard 
                 userEmail={user?.email || ''}
                 onLogout={handleLogout} 
+                onSessionExpired={forceLogout}
                 onHasResumeUpdate={(val) => setHasResume(val)} 
               />
             </div>

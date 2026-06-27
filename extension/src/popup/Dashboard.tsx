@@ -6,10 +6,11 @@ import { Job } from '../types/index.js';
 interface DashboardProps {
   userEmail: string;
   onLogout: () => void;
+  onSessionExpired: () => void;
   onHasResumeUpdate: (hasResume: boolean) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout, onHasResumeUpdate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout, onSessionExpired, onHasResumeUpdate }) => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -43,6 +44,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout, onHas
       onHasResumeUpdate(!!profile.resume_text);
     } catch (err: any) {
       setError(err.message || 'Failed to sync dashboard data.');
+      const errMsg = String(err.message || '');
+      if (
+        errMsg.includes('token') || 
+        errMsg.includes('expired') || 
+        errMsg.includes('Unauthorized') || 
+        errMsg.includes('401') || 
+        errMsg.includes('403')
+      ) {
+        console.warn('Unauthorized session. Resetting login credentials...', errMsg);
+        setTimeout(() => {
+          onSessionExpired();
+        }, 1500);
+      }
     } finally {
       setLoading(false);
     }
