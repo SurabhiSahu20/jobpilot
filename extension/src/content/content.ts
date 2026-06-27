@@ -3,7 +3,24 @@ import { scrapeNaukri, scrapeNaukriSearchResults } from './naukri.js';
 import { scrapeWellfound, scrapeWellfoundSearchResults } from './wellfound.js';
 import { scrapeIndeed, scrapeIndeedSearchResults } from './indeed.js';
 
-const BASE_URL = 'https://jobpilot-backend-cjoz.onrender.com/api';
+let activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
+
+const detectBackend = async () => {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const res = await fetch('http://localhost:5001/health', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      activeBaseUrl = 'http://localhost:5001/api';
+      console.log('✈️ JobPilot Content: Local backend detected.');
+    }
+  } catch (e) {
+    // Ignore
+  }
+};
+detectBackend();
+
 let lastUrl = window.location.href;
 const processingUrls = new Set<string>();
 let isAutoScraping = false;
@@ -100,7 +117,7 @@ const getAlreadySavedUrls = (): Promise<string[]> => {
 
 const saveJobAndMatch = async (job: any, token: string) => {
   try {
-    const saveRes = await fetch(`${BASE_URL}/jobs`, {
+    const saveRes = await fetch(`${activeBaseUrl}/jobs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -112,7 +129,7 @@ const saveJobAndMatch = async (job: any, token: string) => {
     const saveData = await saveRes.json();
     const savedJob = saveData.job;
 
-    const matchRes = await fetch(`${BASE_URL}/ai/match`, {
+    const matchRes = await fetch(`${activeBaseUrl}/ai/match`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -129,7 +146,7 @@ const saveJobAndMatch = async (job: any, token: string) => {
       const matchData = await matchRes.json();
       const notes = `[Match: ${matchData.matchPercent}%] ${matchData.summary}`;
       
-      await fetch(`${BASE_URL}/jobs/${savedJob.id}`, {
+      await fetch(`${activeBaseUrl}/jobs/${savedJob.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
