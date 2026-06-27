@@ -4,7 +4,7 @@ services:
     name: jobpilot-backend
     env: node
     plan: free
-    rootDirectory: backend
+    rootDir: backend
     buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
