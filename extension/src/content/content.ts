@@ -21,7 +21,7 @@ const runScraper = (): any => {
 const updateDetectedJobInStorage = () => {
   const job = runScraper();
   if (job) {
-    console.log('JobPilot: Detected Job details:', job.role, 'at', job.company);
+    console.log('%c✈️ JobPilot Auto-Scrape Output:', 'color: #6366f1; font-weight: bold; font-size: 13px;', job);
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
       chrome.storage.local.set({ detected_job: job });
     }
@@ -38,6 +38,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === 'SCRAPE_JOB') {
       const job = runScraper();
+      console.log('%c✈️ JobPilot Requested Scrape Output:', 'color: #a855f7; font-weight: bold; font-size: 13px;', job);
       sendResponse({ job });
     }
     return true; // Keep message channel open for async response
