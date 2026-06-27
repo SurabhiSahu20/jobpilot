@@ -3,9 +3,9 @@ import mammoth from 'mammoth';
 
 export const parsePdf = async (buffer: Buffer): Promise<string> => {
   try {
-    const parse = (pdfParse as any).default || pdfParse;
-    const data = await parse(buffer);
-    return data.text || '';
+    const parser = new pdfParse.PDFParse({ data: buffer });
+    const result = await parser.getText();
+    return result.text || '';
   } catch (error: any) {
     console.error('Error parsing PDF:', error);
     throw new Error(`Failed to parse PDF: ${error.message}`);
