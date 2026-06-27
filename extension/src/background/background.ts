@@ -7,12 +7,79 @@ if (typeof chrome !== 'undefined' && (chrome as any).sidePanel && (chrome as any
     .catch((err: any) => console.log('Error setting side panel behavior:', err));
 }
 
-// Initialize alarms on installation
+const setupHeaderRules = () => {
+  if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest) {
+    const rules = [
+      {
+        id: 1,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'origin', operation: 'remove' },
+            { header: 'referer', operation: 'set', value: 'https://www.linkedin.com/' }
+          ]
+        },
+        condition: {
+          urlFilter: 'linkedin.com',
+          resourceTypes: ['xmlhttprequest']
+        }
+      },
+      {
+        id: 2,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'origin', operation: 'remove' },
+            { header: 'referer', operation: 'set', value: 'https://www.indeed.com/' }
+          ]
+        },
+        condition: {
+          urlFilter: 'indeed.com',
+          resourceTypes: ['xmlhttprequest']
+        }
+      },
+      {
+        id: 3,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'origin', operation: 'remove' },
+            { header: 'referer', operation: 'set', value: 'https://duckduckgo.com/' }
+          ]
+        },
+        condition: {
+          urlFilter: 'duckduckgo.com',
+          resourceTypes: ['xmlhttprequest']
+        }
+      }
+    ];
+
+    chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [1, 2, 3],
+      addRules: rules as any
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('DeclarativeNetRequest rules update failed:', chrome.runtime.lastError.message);
+      } else {
+        console.log('✈️ DeclarativeNetRequest: Outgoing request headers configured successfully.');
+      }
+    });
+  }
+};
+
+// Initialize alarms and header rules on installation
 chrome.runtime.onInstalled.addListener(() => {
   console.log('JobPilot: Service Worker initialized.');
   // Create an alarm to check for follow-up reminders every 60 minutes
   chrome.alarms.create('check-followup-reminders', { periodInMinutes: 60 });
+  setupHeaderRules();
 });
+
+// Configure outgoing headers at worker boot
+setupHeaderRules();
 
 // Alarm Listener
 chrome.alarms.onAlarm.addListener(async (alarm) => {

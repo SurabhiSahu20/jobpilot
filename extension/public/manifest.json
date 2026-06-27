@@ -9,7 +9,8 @@
     "scripting",
     "alarms",
     "notifications",
-    "sidePanel"
+    "sidePanel",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "*://*.linkedin.com/*",
