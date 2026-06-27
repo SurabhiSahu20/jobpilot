@@ -421,6 +421,33 @@ if (isContextValid()) {
         const job = runScraper();
         console.log('%c✈️ JobPilot Requested Scrape Output:', 'color: #a855f7; font-weight: bold; font-size: 13px;', job);
         sendResponse({ job });
+      } else if (message.action === 'GET_VISIBLE_JOBS') {
+        const host = window.location.host;
+        let rawJobs: any[] = [];
+        if (host.includes('linkedin.com')) {
+          rawJobs = scrapeLinkedInSearchResults();
+        } else if (host.includes('naukri.com')) {
+          rawJobs = scrapeNaukriSearchResults();
+        } else if (host.includes('wellfound.com')) {
+          rawJobs = scrapeWellfoundSearchResults();
+        } else if (host.includes('indeed.com')) {
+          rawJobs = scrapeIndeedSearchResults();
+        }
+        
+        const formattedJobs = rawJobs.map((job: any) => ({
+          jobId: job.jobId || Math.random().toString(),
+          role: job.role,
+          company: job.company,
+          location: job.location || 'Remote',
+          salary: job.salary || 'Not Specified',
+          experience: job.experience || 'Not Specified',
+          skills: job.skills || [],
+          description: job.description || `Active job at ${job.company}`,
+          apply_link: job.apply_link,
+          source: host.includes('linkedin.com') ? 'LinkedIn' : host.includes('indeed.com') ? 'Indeed' : host.includes('naukri.com') ? 'Naukri' : 'Wellfound'
+        }));
+        
+        sendResponse({ success: true, jobs: formattedJobs });
       } else if (message.action === 'CHECK_PAGE_TYPE') {
         const result = checkPageType();
         sendResponse(result);

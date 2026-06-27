@@ -167,6 +167,89 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // Keep connection open for async response
   }
 
+const matchAndRespondJobs = async (rawJobs: any[], token: string, sendResponse: (response: any) => void) => {
+  if (rawJobs.length === 0) {
+    sendResponse({ success: true, jobs: [] });
+    return;
+  }
+
+  // Process top 8 jobs in parallel to avoid rate limits
+  const jobsToProcess = rawJobs.slice(0, 8);
+  const processedJobs = await Promise.all(
+    jobsToProcess.map(async (job) => {
+      try {
+        let matchRes = await fetch('http://localhost:5001/api/ai/match', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            jobRole: job.role,
+            jobCompany: job.company,
+            jobDescription: job.description || `Software role at ${job.company}`
+          })
+        });
+
+        let matchData = { matchPercent: 50, summary: 'AI evaluation skipped.' };
+        if (matchRes.ok) {
+          matchData = await matchRes.json();
+        } else {
+          const hostedRes = await fetch('https://jobpilot-backend-cjoz.onrender.com/api/ai/match', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              jobRole: job.role,
+              jobCompany: job.company,
+              jobDescription: job.description || `Software role at ${job.company}`
+            })
+          });
+          if (hostedRes.ok) {
+            matchData = await hostedRes.json();
+          }
+        }
+
+        return {
+          ...job,
+          matchPercent: matchData.matchPercent,
+          summary: matchData.summary,
+          missingSkills: (matchData as any).missingSkills || [],
+          matchingSkills: (matchData as any).matchingSkills || [],
+          recommendedLearning: (matchData as any).recommendedLearning || []
+        };
+      } catch (e: any) {
+        console.error('Error matching job in background search:', job.role, e);
+        return {
+          ...job,
+          matchPercent: 50,
+          summary: 'Failed to generate AI match profile.',
+          missingSkills: [],
+          matchingSkills: [],
+          recommendedLearning: []
+        };
+      }
+    })
+  );
+
+  // Sort jobs by match percent descending
+  const sortedJobs = processedJobs.sort((a, b) => (b.matchPercent || 0) - (a.matchPercent || 0));
+  sendResponse({ success: true, jobs: sortedJobs });
+};
+
+const executeBackgroundProvidersSearch = (keyword: string, token: string, sendResponse: (res: any) => void) => {
+  Promise.all(providers.map(p => p.search(keyword)))
+    .then(async (providerResults) => {
+      const rawJobs = providerResults.flat();
+      await matchAndRespondJobs(rawJobs, token, sendResponse);
+    })
+    .catch((err) => {
+      sendResponse({ success: false, error: err.message });
+    });
+};
+
   if (message.action === 'SEARCH_AND_MATCH_JOBS') {
     const { keyword } = message;
 
@@ -177,87 +260,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
 
-      // Query all pluggable providers in parallel
-      Promise.all(providers.map(p => p.search(keyword)))
-        .then(async (providerResults) => {
-          // Flatten results from all platforms
-          const rawJobs = providerResults.flat();
-          if (rawJobs.length === 0) {
-            sendResponse({ success: true, jobs: [] });
-            return;
-          }
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const activeTab = tabs[0];
+        const host = activeTab?.url ? new URL(activeTab.url).hostname : '';
+        const isSupportedPlatform = ['linkedin.com', 'indeed.com', 'naukri.com', 'wellfound.com'].some(p => host.includes(p));
 
-          // Process top 8 jobs in parallel to avoid rate limits
-          const jobsToProcess = rawJobs.slice(0, 8);
-          const processedJobs = await Promise.all(
-            jobsToProcess.map(async (job) => {
-              try {
-                // Determine backend URL (local or Render hosted fallback)
-                let matchRes = await fetch('http://localhost:5001/api/ai/match', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                  },
-                  body: JSON.stringify({
-                    jobRole: job.role,
-                    jobCompany: job.company,
-                    jobDescription: job.description || `Software role at ${job.company}`
-                  })
-                });
-
-                let matchData = { matchPercent: 50, summary: 'AI evaluation skipped.' };
-                if (matchRes.ok) {
-                  matchData = await matchRes.json();
-                } else {
-                  // Try hosted API if local dev server is not running
-                  const hostedRes = await fetch('https://jobpilot-backend-cjoz.onrender.com/api/ai/match', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                      jobRole: job.role,
-                      jobCompany: job.company,
-                      jobDescription: job.description || `Software role at ${job.company}`
-                    })
-                  });
-                  if (hostedRes.ok) {
-                    matchData = await hostedRes.json();
-                  }
-                }
-
-                return {
-                  ...job,
-                  matchPercent: matchData.matchPercent,
-                  summary: matchData.summary,
-                  missingSkills: (matchData as any).missingSkills || [],
-                  matchingSkills: (matchData as any).matchingSkills || [],
-                  recommendedLearning: (matchData as any).recommendedLearning || []
-                };
-              } catch (e: any) {
-                console.error('Error matching job in background search:', job.role, e);
-                return {
-                  ...job,
-                  matchPercent: 50,
-                  summary: 'Failed to generate AI match profile.',
-                  missingSkills: [],
-                  matchingSkills: [],
-                  recommendedLearning: []
-                };
-              }
-            })
-          );
-
-          // Sort jobs by match percent descending
-          processedJobs.sort((a, b) => b.matchPercent - a.matchPercent);
-
-          sendResponse({ success: true, jobs: processedJobs });
-        })
-        .catch((err) => {
-          sendResponse({ success: false, error: err.message });
-        });
+        if (isSupportedPlatform && activeTab?.id) {
+          chrome.tabs.sendMessage(activeTab.id, { action: 'GET_VISIBLE_JOBS' }, async (res) => {
+            if (res && res.success && Array.isArray(res.jobs) && res.jobs.length > 0) {
+              console.log('✈️ JobPilot: Pulled jobs directly from active tab DOM.');
+              await matchAndRespondJobs(res.jobs, token, sendResponse);
+            } else {
+              executeBackgroundProvidersSearch(keyword, token, sendResponse);
+            }
+          });
+        } else {
+          executeBackgroundProvidersSearch(keyword, token, sendResponse);
+        }
+      });
     });
     return true; // Keep connection open for async response
   }
