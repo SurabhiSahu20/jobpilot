@@ -235,7 +235,7 @@ const matchAndRespondJobs = async (rawJobs: any[], token: string, sendResponse: 
   sendResponse({ success: true, jobs: sortedJobs });
 };
 
-const executeBackgroundTabsSearch = (keyword: string, token: string, sendResponse: (res: any) => void) => {
+const executeBackgroundTabsSearch = async (keyword: string, token: string, sendResponse: (res: any) => void) => {
   const platforms = [
     {
       name: 'LinkedIn',
@@ -256,98 +256,84 @@ const executeBackgroundTabsSearch = (keyword: string, token: string, sendRespons
   ];
 
   let gatheredJobs: any[] = [];
-  let pendingCount = platforms.length;
-  let responseSent = false;
-  const activeTabIds: number[] = [];
 
-  const cleanupAndRespond = async () => {
-    if (responseSent) return;
-    responseSent = true;
-    
-    // Close any tabs that are still open
-    for (const tabId of activeTabIds) {
-      try {
-        chrome.tabs.remove(tabId);
-      } catch (e) {
-        // Ignore
-      }
-    }
-    
-    // Fall back to backend search provider if no jobs were scraped from background tabs
-    if (gatheredJobs.length === 0) {
-      console.log('✈️ JobPilot: Background tabs returned no results. Querying backend search fallback...');
-      try {
-        const fallbackRes = await fetch(`http://localhost:5001/api/jobs/search`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ query: keyword })
-        });
-        if (fallbackRes.ok) {
-          const data = await fallbackRes.json();
-          if (data && data.success && Array.isArray(data.jobs)) {
-            gatheredJobs = data.jobs;
+  for (const platform of platforms) {
+    console.log(`✈️ JobPilot: Sequentially scraping ${platform.name}...`);
+    try {
+      const platformJobs = await new Promise<any[]>((resolve) => {
+        let tabId: number | undefined;
+        let resolved = false;
+
+        const timeout = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          console.log(`✈️ JobPilot: Scrape timeout for ${platform.name}`);
+          chrome.runtime.onMessage.removeListener(listener);
+          if (tabId) {
+            try { chrome.tabs.remove(tabId); } catch (e) {}
           }
-        }
-      } catch (e) {
-        console.error('Backend search fallback fetch failed:', e);
-      }
-    }
+          resolve([]);
+        }, 3000); // 3 seconds timeout per platform
 
-    await matchAndRespondJobs(gatheredJobs, token, sendResponse);
-  };
+        const listener = (msg: any, sender: any) => {
+          if (msg.action === 'SCRAPED_SEARCH_RESULTS' && sender.tab?.id === tabId) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
+            chrome.runtime.onMessage.removeListener(listener);
+            try { chrome.tabs.remove(sender.tab.id); } catch (e) {}
+            resolve(msg.jobs || []);
+          }
+        };
+        chrome.runtime.onMessage.addListener(listener);
 
-  // Set a maximum timeout of 7 seconds to prevent hanging the UI
-  const timeoutId = setTimeout(() => {
-    console.log('✈️ JobPilot: Background search timed out after 7s. Gathering results...');
-    cleanupAndRespond();
-  }, 7000);
+        chrome.tabs.create({ url: platform.url, active: false }, (tab) => {
+          tabId = tab?.id;
+          if (!tabId) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(timeout);
+            chrome.runtime.onMessage.removeListener(listener);
+            resolve([]);
+          }
+        });
+      });
 
-  const resultListener = (msg: any, sender: any) => {
-    if (msg.action === 'SCRAPED_SEARCH_RESULTS' && sender.tab?.id && activeTabIds.includes(sender.tab.id)) {
-      console.log(`✈️ JobPilot: Received ${msg.jobs.length} jobs from background tab (${sender.tab.url})`);
-      
-      for (const job of msg.jobs) {
+      console.log(`✈️ JobPilot: Scraped ${platformJobs.length} jobs from ${platform.name}`);
+      for (const job of platformJobs) {
         if (!gatheredJobs.some(j => j.apply_link === job.apply_link)) {
           gatheredJobs.push(job);
         }
       }
-      
-      try {
-        chrome.tabs.remove(sender.tab.id);
-        const idx = activeTabIds.indexOf(sender.tab.id);
-        if (idx > -1) activeTabIds.splice(idx, 1);
-      } catch (e) {
-        // Ignore
-      }
-
-      pendingCount--;
-      if (pendingCount === 0) {
-        clearTimeout(timeoutId);
-        chrome.runtime.onMessage.removeListener(resultListener);
-        cleanupAndRespond();
-      }
+    } catch (err) {
+      console.error(`Error scraping ${platform.name} sequentially:`, err);
     }
-  };
-  chrome.runtime.onMessage.addListener(resultListener);
+  }
 
-  // Open tabs in the background (active: false)
-  for (const platform of platforms) {
-    chrome.tabs.create({ url: platform.url, active: false }, (tab) => {
-      if (tab?.id) {
-        activeTabIds.push(tab.id);
-      } else {
-        pendingCount--;
-        if (pendingCount === 0) {
-          clearTimeout(timeoutId);
-          chrome.runtime.onMessage.removeListener(resultListener);
-          cleanupAndRespond();
+  // Fall back to backend search provider if no jobs were scraped from background tabs
+  if (gatheredJobs.length === 0) {
+    console.log('✈️ JobPilot: Background tabs returned no results. Querying backend search fallback...');
+    try {
+      const fallbackRes = await fetch(`http://localhost:5001/api/jobs/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: keyword })
+      });
+      if (fallbackRes.ok) {
+        const data = await fallbackRes.json();
+        if (data && data.success && Array.isArray(data.jobs)) {
+          gatheredJobs = data.jobs;
         }
       }
-    });
+    } catch (e) {
+      console.error('Backend search fallback fetch failed:', e);
+    }
   }
+
+  await matchAndRespondJobs(gatheredJobs, token, sendResponse);
 };
 
   if (message.action === 'SEARCH_AND_MATCH_JOBS') {
