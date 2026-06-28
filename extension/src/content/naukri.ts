@@ -86,6 +86,32 @@ export const scrapeNaukriSearchResults = (): any[] => {
       }
     });
 
+    // Fallback: search DOM globally for any naukri.com/job-listings links if no cards matched
+    if (jobs.length === 0) {
+      const links = document.querySelectorAll('a[href*="naukri.com/job-listings"]');
+      links.forEach(link => {
+        let apply_link = link.getAttribute('href') || '';
+        const cardParent = link.closest('article, div[class*="tuple"], div[class*="job"]');
+        if (cardParent) {
+          const role = link.textContent?.trim() || 'Software Engineer';
+          const companyEl = cardParent.querySelector('.comp-name, .companyName, [class*="company"]');
+          const company = companyEl ? companyEl.textContent?.trim() : 'Naukri Employer';
+          const locationEl = cardParent.querySelector('.loc-wrap, .loc span, [class*="location"]');
+          const location = locationEl ? locationEl.textContent?.trim() : 'Remote';
+          
+          if (role && company && !jobs.some(j => j.apply_link === apply_link)) {
+            jobs.push({
+              role: role.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+              company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+              location: location || 'Remote',
+              apply_link,
+              source: 'Naukri'
+            });
+          }
+        }
+      });
+    }
+
     return jobs;
   } catch (error) {
     console.error('Naukri list scraper error:', error);

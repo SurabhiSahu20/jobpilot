@@ -84,45 +84,58 @@ export const scrapeLinkedInSearchResults = (): any[] => {
   try {
     const jobs: any[] = [];
     const cards = document.querySelectorAll(
-      '[data-job-id], [data-occludable-job-id], .jobs-search-results-list__list-item, .job-card-container'
+      '[data-job-id], [data-occludable-job-id], .jobs-search-results-list__list-item, .job-card-container, .job-search-card, .base-search-card, li:has(.base-card)'
     );
     
     cards.forEach(card => {
       let jobId = card.getAttribute('data-job-id') || card.getAttribute('data-occludable-job-id');
       
-      const linkEl = card.querySelector('a[href*="/view/"], a[href*="currentJobId="]');
+      const urnEl = card.querySelector('[data-entity-urn]') || card;
+      const urn = urnEl.getAttribute('data-entity-urn') || '';
+      if (urn.includes('jobPosting:') && !jobId) {
+        jobId = urn.split('jobPosting:')[1];
+      }
+      
+      const linkEl = card.querySelector('a.base-card__full-link, a[href*="/view/"], a[href*="currentJobId="]');
+      let apply_link = '';
       if (linkEl) {
-        const href = linkEl.getAttribute('href') || '';
-        const idMatch = href.match(/\/view\/.*?-(\d+)(?:\?|$)/) || href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
-        if (idMatch && !jobId) {
-          jobId = idMatch[1];
+        apply_link = linkEl.getAttribute('href') || '';
+        if (apply_link && !apply_link.startsWith('http')) {
+          apply_link = `https://www.linkedin.com${apply_link}`;
+        }
+        
+        if (!jobId) {
+          const idMatch = apply_link.match(/\/view\/.*?-(\d+)(?:\?|$)/) || apply_link.match(/\/view\/(\d+)/) || apply_link.match(/currentJobId=(\d+)/);
+          if (idMatch) {
+            jobId = idMatch[1];
+          }
         }
       }
       
       if (!jobId) return;
 
       const titleEl = card.querySelector(
-        '.job-card-list__title, .job-card-container__link, a[href*="/view/"] span, [class*="job-card-list__title"]'
+        '.base-search-card__title, .job-card-list__title, .job-card-container__link, a.base-card__full-link span, [class*="job-card-list__title"]'
       );
-      const role = titleEl ? titleEl.textContent?.trim() : '';
+      let role = titleEl ? titleEl.textContent?.trim() : '';
 
       const companyEl = card.querySelector(
-        '.job-card-container__primary-description, .job-card-container__company-name, .job-card-list__company-name, .artdeco-entity-lockup__subtitle, [class*="company-name"]'
+        '.base-search-card__subtitle a, .base-search-card__subtitle, .job-card-container__primary-description, .job-card-container__company-name, .job-card-list__company-name, [class*="company-name"]'
       );
-      const company = companyEl ? companyEl.textContent?.trim() : '';
+      let company = companyEl ? companyEl.textContent?.trim() : '';
 
       const locationEl = card.querySelector(
-        '.job-card-container__metadata-item, .job-card-list__metadata-item, [class*="metadata-item"]'
+        '.job-search-card__location, .job-card-container__metadata-item, .job-card-list__metadata-item, [class*="metadata-item"]'
       );
-      const location = locationEl ? locationEl.textContent?.trim() : '';
+      let location = locationEl ? locationEl.textContent?.trim() : '';
 
-      if (role && company && !jobs.some(j => j.jobId === jobId)) {
+      if (role && apply_link) {
         jobs.push({
           jobId,
           role: role.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
-          company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+          company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() || 'LinkedIn Employer',
           location: location?.split('·')[0]?.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() || 'Remote',
-          apply_link: `https://www.linkedin.com/jobs/view/${jobId}/`,
+          apply_link,
           source: 'LinkedIn'
         });
       }
@@ -130,26 +143,34 @@ export const scrapeLinkedInSearchResults = (): any[] => {
 
     // Fallback: search DOM globally for any job link anchors if no cards matched
     if (jobs.length === 0) {
-      const links = document.querySelectorAll('a[href*="/view/"], a[href*="currentJobId="]');
+      const links = document.querySelectorAll('a.base-card__full-link, a[href*="/view/"], a[href*="currentJobId="]');
       links.forEach(link => {
-        const href = link.getAttribute('href') || '';
-        const idMatch = href.match(/\/view\/.*?-(\d+)(?:\?|$)/) || href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
+        let apply_link = link.getAttribute('href') || '';
+        if (apply_link && !apply_link.startsWith('http')) {
+          apply_link = `https://www.linkedin.com${apply_link}`;
+        }
+        
+        const idMatch = apply_link.match(/\/view\/.*?-(\d+)(?:\?|$)/) || apply_link.match(/\/view\/(\d+)/) || apply_link.match(/currentJobId=(\d+)/);
         if (idMatch) {
           const jobId = idMatch[1];
-          const cardParent = link.closest('li, div[class*="card"]');
+          const cardParent = link.closest('li, div.job-search-card, div.base-card, div[class*="card"]');
           if (cardParent) {
-            const titleEl = cardParent.querySelector('h3, h4, .job-card-list__title, [class*="title"]');
+            const titleEl = cardParent.querySelector('.base-search-card__title, h3, h4, [class*="title"]');
             const role = titleEl ? titleEl.textContent?.trim() : link.textContent?.trim();
-            const companyEl = cardParent.querySelector('[class*="company-name"], .job-card-list__company-name, .artdeco-entity-lockup__subtitle');
-            const company = companyEl ? companyEl.textContent?.trim() : 'Employer';
             
-            if (role && company && !jobs.some(j => j.jobId === jobId)) {
+            const companyEl = cardParent.querySelector('.base-search-card__subtitle a, .base-search-card__subtitle, [class*="company-name"]');
+            const company = companyEl ? companyEl.textContent?.trim() : 'LinkedIn Employer';
+            
+            const locationEl = cardParent.querySelector('.job-search-card__location, [class*="location"]');
+            const location = locationEl ? locationEl.textContent?.trim() : 'Remote';
+            
+            if (role && !jobs.some(j => j.jobId === jobId)) {
               jobs.push({
                 jobId,
                 role: role.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
                 company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
-                location: 'Remote',
-                apply_link: `https://www.linkedin.com/jobs/view/${jobId}/`,
+                location: location || 'Remote',
+                apply_link,
                 source: 'LinkedIn'
               });
             }
