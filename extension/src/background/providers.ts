@@ -108,12 +108,34 @@ async function getPartitionedJobs(keyword: string, source: 'LinkedIn' | 'Indeed'
   return results;
 }
 
-// Helper to query search engines for real live postings when direct scraping is restricted
-async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
+// Helper to decode base64 encoded destination links in Bing search result redirection URLs
+function decodeBingLink(bingLink: string): string {
   try {
-    // Natural search query that is highly indexed by search engines
+    if (bingLink.includes('&u=')) {
+      const uMatch = bingLink.match(/[&?]u=([^&]+)/);
+      if (uMatch) {
+        let encoded = decodeURIComponent(uMatch[1]);
+        if (encoded.length > 2) {
+          encoded = encoded.slice(2);
+        }
+        while (encoded.length % 4 !== 0) {
+          encoded += '=';
+        }
+        let decoded = atob(encoded);
+        return decoded;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to decode Bing link:', e);
+  }
+  return bingLink;
+}
+
+// Helper to query Bing search engines for real live postings when direct scraping is restricted
+async function searchViaBing(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
+  try {
     const query = `${source.toLowerCase()} jobs ${keyword}`;
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
     
     const res = await fetch(url, {
       headers: {
@@ -122,48 +144,53 @@ async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed
         'Accept-Language': 'en-US,en;q=0.9'
       }
     });
-    if (!res.ok) throw new Error(`DuckDuckGo query status ${res.status}`);
+    if (!res.ok) throw new Error(`Bing query status ${res.status}`);
     const html = await res.text();
     
     const results: RawSearchResult[] = [];
-    const resultRegex = /<a[^>]*class="[^"]*?result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const algoRegex = /<li[^>]*class="b_algo"[^>]*>([\s\S]*?)<\/li>/g;
     let match;
     let count = 0;
     
-    while ((match = resultRegex.exec(html)) !== null && count < 3) {
-      let link = match[1];
-      if (link.includes('uddg=')) {
-        const uddg = link.match(/uddg=([^&]+)/);
-        if (uddg) link = decodeURIComponent(uddg[1]);
-      }
-      
-      const title = match[2].replace(/<[^>]*>/g, '').trim();
-      
-      // Parse Role and Company from Title (e.g. "Software Engineer at Stripe", "Software Engineer - Wipro")
-      let role = title;
-      let company = source === 'LinkedIn' ? 'LinkedIn Employer' : source === 'Naukri' ? 'Naukri Employer' : 'Employer';
-      
-      if (title.includes(' at ')) {
-        const parts = title.split(' at ');
-        role = parts[0].trim();
-        company = parts[1].split(' - ')[0].split(' | ')[0].trim();
-      } else if (title.includes(' - ')) {
-        const parts = title.split(' - ');
-        role = parts[0].trim();
-        if (parts[1]) {
-          company = parts[1].split(' | ')[0].trim();
+    while ((match = algoRegex.exec(html)) !== null && count < 3) {
+      const card = match[1];
+      const linkMatch = card.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      if (linkMatch) {
+        let rawLink = linkMatch[1].replace(/&amp;/g, '&');
+        const link = decodeBingLink(rawLink);
+        
+        const isMatchingDomain = link.includes(source.toLowerCase()) || 
+                                 (source === 'Naukri' && link.includes('naukri.com')) || 
+                                 (source === 'Wellfound' && (link.includes('wellfound.com') || link.includes('angel.co')));
+                                 
+        if (!isMatchingDomain) continue;
+        
+        const title = linkMatch[2].replace(/<[^>]*>/g, '').trim();
+        
+        let role = title;
+        let company = source.toString();
+        
+        if (title.includes(' at ')) {
+          const parts = title.split(' at ');
+          role = parts[0].trim();
+          company = parts[1].split(' - ')[0].split(' | ')[0].split(' : ')[0].trim();
+        } else if (title.includes(' - ')) {
+          const parts = title.split(' - ');
+          role = parts[0].trim();
+          if (parts[1]) {
+            company = parts[1].split(' | ')[0].split(' : ')[0].trim();
+          }
+        } else if (title.includes(' | ')) {
+          const parts = title.split(' | ');
+          role = parts[0].trim();
+          if (parts[1]) {
+            company = parts[1].trim();
+          }
         }
-      }
-      
-      // Clean up common suffixes
-      role = role.replace(/Job in.*/i, '').replace(/\|.*/, '').replace(/Careers.*/i, '').trim();
-      company = company.replace(/Careers.*/i, '').replace(/Job.*/i, '').trim();
-
-      const isMatchingDomain = link.includes(source.toLowerCase()) || 
-                               (source === 'Naukri' && link.includes('naukri.com')) || 
-                               (source === 'Wellfound' && (link.includes('wellfound.com') || link.includes('angel.co')));
-
-      if (isMatchingDomain) {
+        
+        role = role.replace(/Job in.*/i, '').replace(/Careers.*/i, '').trim();
+        company = company.replace(/Careers.*/i, '').replace(/Job.*/i, '').trim();
+        
         results.push({
           jobId: `${source.toLowerCase()}-${Math.floor(Math.random() * 100000)}`,
           role,
@@ -172,7 +199,7 @@ async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed
           salary: 'Not Specified',
           experience: 'Not Specified',
           skills: ['Software Engineering'],
-          description: `Active job opening: ${role} at ${company}. View full details and apply.`,
+          description: `Active job opening: ${role} at ${company}. View full details and apply directly.`,
           apply_link: link,
           source
         });
@@ -181,7 +208,7 @@ async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed
     }
     return results;
   } catch (error) {
-    console.warn(`DuckDuckGo search fallback for ${source} failed:`, error);
+    console.warn(`Bing search fallback for ${source} failed:`, error);
     return [];
   }
 }
@@ -286,16 +313,14 @@ export class LinkedInProvider implements JobSearchProvider {
       }
       if (jobs.length > 0) return jobs;
       
-      // Fallback 1: Try search engine query for LinkedIn results
-      const ddgResults = await searchViaDuckDuckGo(keyword, 'LinkedIn');
-      if (ddgResults.length > 0) return ddgResults;
+      const bingResults = await searchViaBing(keyword, 'LinkedIn');
+      if (bingResults.length > 0) return bingResults;
 
-      // Fallback 2: Partitioned Remotive query
       return await getPartitionedJobs(keyword, 'LinkedIn');
     } catch (error) {
       console.warn('LinkedIn search provider failed. Using search engine fallback.', error);
-      const ddgResults = await searchViaDuckDuckGo(keyword, 'LinkedIn');
-      if (ddgResults.length > 0) return ddgResults;
+      const bingResults = await searchViaBing(keyword, 'LinkedIn');
+      if (bingResults.length > 0) return bingResults;
       return await getPartitionedJobs(keyword, 'LinkedIn');
     }
   }
@@ -356,8 +381,8 @@ export class IndeedProvider implements JobSearchProvider {
       throw new Error('No jobs parsed from Indeed page.');
     } catch (error) {
       console.log('Indeed Provider: Scrape blocked. Utilizing search engine parser.');
-      const ddgResults = await searchViaDuckDuckGo(keyword, 'Indeed');
-      if (ddgResults.length > 0) return ddgResults;
+      const bingResults = await searchViaBing(keyword, 'Indeed');
+      if (bingResults.length > 0) return bingResults;
       return await getPartitionedJobs(keyword, 'Indeed');
     }
   }
@@ -368,7 +393,7 @@ export class NaukriProvider implements JobSearchProvider {
   name = 'Naukri';
 
   async search(keyword: string): Promise<RawSearchResult[]> {
-    const results = await searchViaDuckDuckGo(keyword, 'Naukri');
+    const results = await searchViaBing(keyword, 'Naukri');
     if (results.length > 0) return results;
     return await getPartitionedJobs(keyword, 'Naukri');
   }
@@ -379,7 +404,7 @@ export class WellfoundProvider implements JobSearchProvider {
   name = 'Wellfound';
 
   async search(keyword: string): Promise<RawSearchResult[]> {
-    const results = await searchViaDuckDuckGo(keyword, 'Wellfound');
+    const results = await searchViaBing(keyword, 'Wellfound');
     if (results.length > 0) return results;
     return await getPartitionedJobs(keyword, 'Wellfound');
   }
