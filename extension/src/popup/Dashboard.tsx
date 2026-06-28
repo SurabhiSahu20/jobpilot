@@ -216,7 +216,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ userEmail, onLogout, onSes
     
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage(
-        { action: 'SEARCH_AND_MATCH_JOBS', keyword: searchKeyword },
+        { action: 'SEARCH_AND_MATCH_JOBS', keyword: searchKeyword, manual: true },
         (res) => {
           setSearchingJobs(false);
           if (chrome.runtime.lastError) {

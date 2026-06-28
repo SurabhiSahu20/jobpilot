@@ -251,7 +251,7 @@ const executeBackgroundProvidersSearch = (keyword: string, token: string, sendRe
 };
 
   if (message.action === 'SEARCH_AND_MATCH_JOBS') {
-    const { keyword } = message;
+    const { keyword, manual } = message;
 
     chrome.storage.local.get(['auth_token'], (result) => {
       const token = result.auth_token;
@@ -260,24 +260,28 @@ const executeBackgroundProvidersSearch = (keyword: string, token: string, sendRe
         return;
       }
 
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const activeTab = tabs[0];
-        const host = activeTab?.url ? new URL(activeTab.url).hostname : '';
-        const isSupportedPlatform = ['linkedin.com', 'indeed.com', 'naukri.com', 'wellfound.com'].some(p => host.includes(p));
+      if (!manual) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const activeTab = tabs[0];
+          const host = activeTab?.url ? new URL(activeTab.url).hostname : '';
+          const isSupportedPlatform = ['linkedin.com', 'indeed.com', 'naukri.com', 'wellfound.com'].some(p => host.includes(p));
 
-        if (isSupportedPlatform && activeTab?.id) {
-          chrome.tabs.sendMessage(activeTab.id, { action: 'GET_VISIBLE_JOBS' }, async (res) => {
-            if (res && res.success && Array.isArray(res.jobs) && res.jobs.length > 0) {
-              console.log('✈️ JobPilot: Pulled jobs directly from active tab DOM.');
-              await matchAndRespondJobs(res.jobs, token, sendResponse);
-            } else {
-              executeBackgroundProvidersSearch(keyword, token, sendResponse);
-            }
-          });
-        } else {
-          executeBackgroundProvidersSearch(keyword, token, sendResponse);
-        }
-      });
+          if (isSupportedPlatform && activeTab?.id) {
+            chrome.tabs.sendMessage(activeTab.id, { action: 'GET_VISIBLE_JOBS' }, async (res) => {
+              if (res && res.success && Array.isArray(res.jobs) && res.jobs.length > 0) {
+                console.log('✈️ JobPilot: Pulled jobs directly from active tab DOM.');
+                await matchAndRespondJobs(res.jobs, token, sendResponse);
+              } else {
+                executeBackgroundProvidersSearch(keyword, token, sendResponse);
+              }
+            });
+          } else {
+            executeBackgroundProvidersSearch(keyword, token, sendResponse);
+          }
+        });
+      } else {
+        executeBackgroundProvidersSearch(keyword, token, sendResponse);
+      }
     });
     return true; // Keep connection open for async response
   }
