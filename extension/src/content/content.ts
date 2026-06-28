@@ -513,3 +513,46 @@ const intervalId = setInterval(() => {
     clearInterval(intervalId);
   }
 }, 3000);
+
+// Automatically report search page results to background script if loaded as a background tab
+const reportSearchPageResults = async () => {
+  if (!isContextValid()) return;
+  const pageTypeInfo = checkPageType();
+  if (pageTypeInfo.type === 'search') {
+    setTimeout(() => {
+      const host = window.location.host;
+      let rawJobs: any[] = [];
+      if (host.includes('linkedin.com')) {
+        rawJobs = scrapeLinkedInSearchResults();
+      } else if (host.includes('naukri.com')) {
+        rawJobs = scrapeNaukriSearchResults();
+      } else if (host.includes('wellfound.com')) {
+        rawJobs = scrapeWellfoundSearchResults();
+      } else if (host.includes('indeed.com')) {
+        rawJobs = scrapeIndeedSearchResults();
+      }
+
+      if (rawJobs.length > 0) {
+        const formattedJobs = rawJobs.map((job: any) => ({
+          jobId: job.jobId || Math.random().toString(),
+          role: job.role,
+          company: job.company,
+          location: job.location || 'Remote',
+          salary: job.salary || 'Not Specified',
+          experience: job.experience || 'Not Specified',
+          skills: job.skills || [],
+          description: job.description || `Active job at ${job.company}`,
+          apply_link: job.apply_link,
+          source: host.includes('linkedin.com') ? 'LinkedIn' : host.includes('indeed.com') ? 'Indeed' : host.includes('naukri.com') ? 'Naukri' : 'Wellfound'
+        }));
+        
+        try {
+          chrome.runtime.sendMessage({ action: 'SCRAPED_SEARCH_RESULTS', jobs: formattedJobs });
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }, 2000); // 2 seconds delay to allow dynamic JS elements to render
+  }
+};
+reportSearchPageResults();

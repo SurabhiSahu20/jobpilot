@@ -1,17 +1,24 @@
-async function testIndeedRss() {
+import { searchAllPlatforms } from './services/jobSearch.js';
+
+async function diagnose() {
+  console.log('--- STARTING BING DIAGNOSTIC SEARCH ---');
   try {
-    const url = 'https://www.indeed.com/rss?q=software+engineer';
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-      }
-    });
-    console.log('Status:', res.status);
-    const text = await res.text();
-    console.log('Length:', text.length);
-    console.log('Content Snippet:', text.slice(0, 1000));
+    const keyword = 'manager';
+    console.log(`Running searchAllPlatforms for keyword: "${keyword}"`);
+    const results = await searchAllPlatforms(keyword);
+    console.log(`Search completed. Found ${results.length} total results.`);
+    
+    const platforms = ['LinkedIn', 'Indeed', 'Naukri', 'Wellfound'];
+    for (const platform of platforms) {
+      const platformJobs = results.filter(j => j.source === platform);
+      console.log(`\nPlatform: ${platform} (${platformJobs.length} jobs found)`);
+      platformJobs.forEach((job, idx) => {
+        console.log(`  [Job ${idx + 1}] Title: "${job.role}", Company: "${job.company}", Link: ${job.apply_link}`);
+      });
+    }
   } catch (e: any) {
-    console.error('Error:', e.message);
+    console.error('Diagnostic error:', e.message);
   }
 }
-testIndeedRss();
+
+diagnose();

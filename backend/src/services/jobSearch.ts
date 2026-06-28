@@ -243,7 +243,7 @@ export class LinkedInProvider implements JobSearchProvider {
       const searchUrl = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(keyword)}`;
       const res = await fetch(searchUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9'
         }
@@ -258,15 +258,17 @@ export class LinkedInProvider implements JobSearchProvider {
 
       while ((match = cardRegex.exec(html)) !== null && count < 3) {
         const cardContent = match[1];
-        const linkMatch = cardContent.match(/href="([^"]*?currentJobId=(\d+)[^"]*?|[^"]*?\/view\/.*?(\d+)\/?)"/);
+        
+        // Find any href link inside card Content
+        const hrefMatch = cardContent.match(/href="([^"]+)"/);
         let jobId = '';
         let applyLink = '';
 
-        if (linkMatch) {
-          jobId = linkMatch[2] || linkMatch[3];
-          applyLink = linkMatch[1];
-          if (applyLink && !applyLink.startsWith('http')) {
-            applyLink = `https://www.linkedin.com${applyLink}`;
+        if (hrefMatch) {
+          applyLink = hrefMatch[1].replace(/&amp;/g, '&');
+          const idMatch = applyLink.match(/\/view\/.*?-(\d+)(?:\?|$)/) || applyLink.match(/currentJobId=(\d+)/);
+          if (idMatch) {
+            jobId = idMatch[1];
           }
         }
 

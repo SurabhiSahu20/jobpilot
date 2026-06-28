@@ -235,44 +235,118 @@ const matchAndRespondJobs = async (rawJobs: any[], token: string, sendResponse: 
   sendResponse({ success: true, jobs: sortedJobs });
 };
 
-const executeBackgroundProvidersSearch = async (keyword: string, token: string, sendResponse: (res: any) => void) => {
-  try {
-    let searchRes = await fetch('http://localhost:5001/api/jobs/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ query: keyword })
-    });
+const executeBackgroundTabsSearch = (keyword: string, token: string, sendResponse: (res: any) => void) => {
+  const platforms = [
+    {
+      name: 'LinkedIn',
+      url: `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(keyword)}`
+    },
+    {
+      name: 'Indeed',
+      url: `https://www.indeed.com/jobs?q=${encodeURIComponent(keyword)}`
+    },
+    {
+      name: 'Naukri',
+      url: `https://www.naukri.com/jobs-in-india?keyword=${encodeURIComponent(keyword)}`
+    },
+    {
+      name: 'Wellfound',
+      url: `https://wellfound.com/jobs?keyword=${encodeURIComponent(keyword)}`
+    }
+  ];
 
-    let data;
-    if (searchRes.ok) {
-      data = await searchRes.json();
-    } else {
-      const hostedRes = await fetch('https://jobpilot-backend-cjoz.onrender.com/api/jobs/search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ query: keyword })
-      });
-      if (hostedRes.ok) {
-        data = await hostedRes.json();
-      } else {
-        throw new Error('Search query failed on backend');
+  let gatheredJobs: any[] = [];
+  let pendingCount = platforms.length;
+  let responseSent = false;
+  const activeTabIds: number[] = [];
+
+  const cleanupAndRespond = async () => {
+    if (responseSent) return;
+    responseSent = true;
+    
+    // Close any tabs that are still open
+    for (const tabId of activeTabIds) {
+      try {
+        chrome.tabs.remove(tabId);
+      } catch (e) {
+        // Ignore
+      }
+    }
+    
+    // Fall back to backend search provider if no jobs were scraped from background tabs
+    if (gatheredJobs.length === 0) {
+      console.log('✈️ JobPilot: Background tabs returned no results. Querying backend search fallback...');
+      try {
+        const fallbackRes = await fetch(`http://localhost:5001/api/jobs/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ query: keyword })
+        });
+        if (fallbackRes.ok) {
+          const data = await fallbackRes.json();
+          if (data && data.success && Array.isArray(data.jobs)) {
+            gatheredJobs = data.jobs;
+          }
+        }
+      } catch (e) {
+        console.error('Backend search fallback fetch failed:', e);
       }
     }
 
-    if (data && data.success && Array.isArray(data.jobs)) {
-      await matchAndRespondJobs(data.jobs, token, sendResponse);
-    } else {
-      sendResponse({ success: true, jobs: [] });
+    await matchAndRespondJobs(gatheredJobs, token, sendResponse);
+  };
+
+  // Set a maximum timeout of 7 seconds to prevent hanging the UI
+  const timeoutId = setTimeout(() => {
+    console.log('✈️ JobPilot: Background search timed out after 7s. Gathering results...');
+    cleanupAndRespond();
+  }, 7000);
+
+  const resultListener = (msg: any, sender: any) => {
+    if (msg.action === 'SCRAPED_SEARCH_RESULTS' && sender.tab?.id && activeTabIds.includes(sender.tab.id)) {
+      console.log(`✈️ JobPilot: Received ${msg.jobs.length} jobs from background tab (${sender.tab.url})`);
+      
+      for (const job of msg.jobs) {
+        if (!gatheredJobs.some(j => j.apply_link === job.apply_link)) {
+          gatheredJobs.push(job);
+        }
+      }
+      
+      try {
+        chrome.tabs.remove(sender.tab.id);
+        const idx = activeTabIds.indexOf(sender.tab.id);
+        if (idx > -1) activeTabIds.splice(idx, 1);
+      } catch (e) {
+        // Ignore
+      }
+
+      pendingCount--;
+      if (pendingCount === 0) {
+        clearTimeout(timeoutId);
+        chrome.runtime.onMessage.removeListener(resultListener);
+        cleanupAndRespond();
+      }
     }
-  } catch (err: any) {
-    console.error('Extension background search error:', err);
-    sendResponse({ success: false, error: err.message });
+  };
+  chrome.runtime.onMessage.addListener(resultListener);
+
+  // Open tabs in the background (active: false)
+  for (const platform of platforms) {
+    chrome.tabs.create({ url: platform.url, active: false }, (tab) => {
+      if (tab?.id) {
+        activeTabIds.push(tab.id);
+      } else {
+        pendingCount--;
+        if (pendingCount === 0) {
+          clearTimeout(timeoutId);
+          chrome.runtime.onMessage.removeListener(resultListener);
+          cleanupAndRespond();
+        }
+      }
+    });
   }
 };
 
@@ -298,15 +372,15 @@ const executeBackgroundProvidersSearch = async (keyword: string, token: string, 
                 console.log('✈️ JobPilot: Pulled jobs directly from active tab DOM.');
                 await matchAndRespondJobs(res.jobs, token, sendResponse);
               } else {
-                executeBackgroundProvidersSearch(keyword, token, sendResponse);
+                executeBackgroundTabsSearch(keyword, token, sendResponse);
               }
             });
           } else {
-            executeBackgroundProvidersSearch(keyword, token, sendResponse);
+            executeBackgroundTabsSearch(keyword, token, sendResponse);
           }
         });
       } else {
-        executeBackgroundProvidersSearch(keyword, token, sendResponse);
+        executeBackgroundTabsSearch(keyword, token, sendResponse);
       }
     });
     return true; // Keep connection open for async response
