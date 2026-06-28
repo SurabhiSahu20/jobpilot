@@ -1,5 +1,4 @@
 import { getCachedJobs } from '../services/indexeddb.js';
-import { providers } from './providers.js';
 
 // Configure extension action click to open side panel
 if (typeof chrome !== 'undefined' && (chrome as any).sidePanel && (chrome as any).sidePanel.setPanelBehavior) {
@@ -236,15 +235,45 @@ const matchAndRespondJobs = async (rawJobs: any[], token: string, sendResponse: 
   sendResponse({ success: true, jobs: sortedJobs });
 };
 
-const executeBackgroundProvidersSearch = (keyword: string, token: string, sendResponse: (res: any) => void) => {
-  Promise.all(providers.map(p => p.search(keyword)))
-    .then(async (providerResults) => {
-      const rawJobs = providerResults.flat();
-      await matchAndRespondJobs(rawJobs, token, sendResponse);
-    })
-    .catch((err) => {
-      sendResponse({ success: false, error: err.message });
+const executeBackgroundProvidersSearch = async (keyword: string, token: string, sendResponse: (res: any) => void) => {
+  try {
+    let searchRes = await fetch('http://localhost:5001/api/jobs/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ query: keyword })
     });
+
+    let data;
+    if (searchRes.ok) {
+      data = await searchRes.json();
+    } else {
+      const hostedRes = await fetch('https://jobpilot-backend-cjoz.onrender.com/api/jobs/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: keyword })
+      });
+      if (hostedRes.ok) {
+        data = await hostedRes.json();
+      } else {
+        throw new Error('Search query failed on backend');
+      }
+    }
+
+    if (data && data.success && Array.isArray(data.jobs)) {
+      await matchAndRespondJobs(data.jobs, token, sendResponse);
+    } else {
+      sendResponse({ success: true, jobs: [] });
+    }
+  } catch (err: any) {
+    console.error('Extension background search error:', err);
+    sendResponse({ success: false, error: err.message });
+  }
 };
 
   if (message.action === 'SEARCH_AND_MATCH_JOBS') {

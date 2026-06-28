@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { query } from '../config/db.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { searchAllPlatforms } from '../services/jobSearch.js';
 
 // Get all jobs for the current user
 export const getJobs = async (req: AuthRequest, res: Response) => {
@@ -143,5 +144,21 @@ export const deleteJob = async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('Delete job error:', error);
     return res.status(500).json({ error: 'Failed to delete job application' });
+  }
+};
+
+// Search all job platforms
+export const searchJobs = async (req: AuthRequest, res: Response) => {
+  const { query: keyword } = req.body;
+  if (!keyword) {
+    return res.status(400).json({ error: 'Query is required' });
+  }
+
+  try {
+    const jobs = await searchAllPlatforms(keyword);
+    return res.json({ success: true, jobs });
+  } catch (error: any) {
+    console.error('Backend searchJobs error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to search jobs' });
   }
 };
