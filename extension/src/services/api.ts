@@ -1,20 +1,20 @@
 import { getAuthToken } from './indexeddb.js';
 import { Job, MatchResponse, InterviewPrepResponse, CoverLetterResponse } from '../types/index.js';
 
-let activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
+let activeBaseUrl = 'http://localhost:5001/api';
 
 // Dynamic resolver to connect to local server if it is active
 const detectBackend = async () => {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
     const res = await fetch('http://localhost:5001/health', { signal: controller.signal });
     clearTimeout(timeoutId);
-    if (res.ok) {
-      activeBaseUrl = 'http://localhost:5001/api';
-      console.log('✈️ JobPilot: Local backend detected at http://localhost:5001');
+    if (!res.ok) {
+      activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
     }
   } catch (e) {
+    activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
     console.log('✈️ JobPilot: Local backend inactive. Defaulting to hosted Render server.');
   }
 };

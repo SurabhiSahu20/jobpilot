@@ -3,20 +3,19 @@ import { scrapeNaukri, scrapeNaukriSearchResults } from './naukri.js';
 import { scrapeWellfound, scrapeWellfoundSearchResults } from './wellfound.js';
 import { scrapeIndeed, scrapeIndeedSearchResults } from './indeed.js';
 
-let activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
+let activeBaseUrl = 'http://localhost:5001/api';
 
 const detectBackend = async () => {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
     const res = await fetch('http://localhost:5001/health', { signal: controller.signal });
     clearTimeout(timeoutId);
-    if (res.ok) {
-      activeBaseUrl = 'http://localhost:5001/api';
-      console.log('✈️ JobPilot Content: Local backend detected.');
+    if (!res.ok) {
+      activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
     }
   } catch (e) {
-    // Ignore
+    activeBaseUrl = 'https://jobpilot-backend-cjoz.onrender.com/api';
   }
 };
 detectBackend();
