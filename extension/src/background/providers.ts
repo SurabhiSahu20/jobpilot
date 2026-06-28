@@ -33,36 +33,31 @@ async function getRemotiveJobs(keyword: string): Promise<any[]> {
   currentCacheKeyword = keyword;
   remotivePromise = (async () => {
     try {
-      const url = `https://remotive.com/api/remote-jobs?category=software-development&limit=40`;
+      // Query the global search endpoint with the user's keyword to support all roles (management, HR, dev, etc.)
+      const url = `https://remotive.com/api/remote-jobs?limit=50&search=${encodeURIComponent(keyword)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Remotive fetch failed');
       const data = await res.json();
       if (data.jobs && Array.isArray(data.jobs)) {
         const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
         
+        // STRICTION: Every job returned MUST match at least one of the query terms in its title
         const scored = data.jobs.map((item: any) => {
           const titleLower = item.title.toLowerCase();
           let score = 0;
           for (const word of words) {
             if (titleLower.includes(word)) {
-              if (['frontend', 'backend', 'fullstack', 'react', 'node', 'vue', 'angular', 'javascript', 'typescript', 'rails', 'python', 'devops', 'qa', 'mobile', 'ios', 'android'].includes(word)) {
-                score += 15;
-              } else {
-                score += 2;
-              }
+              score += 1;
             }
           }
           return { item, score };
         });
-
-        let filtered = scored
+        
+        const filtered = scored
           .filter((entry: any) => entry.score > 0)
           .sort((a: any, b: any) => b.score - a.score)
           .map((entry: any) => entry.item);
-        
-        if (filtered.length === 0) {
-          filtered = data.jobs;
-        }
+          
         cachedJobsList = filtered;
         return filtered;
       }
