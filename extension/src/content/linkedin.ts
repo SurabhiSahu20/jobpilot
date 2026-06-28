@@ -93,7 +93,7 @@ export const scrapeLinkedInSearchResults = (): any[] => {
       const linkEl = card.querySelector('a[href*="/view/"], a[href*="currentJobId="]');
       if (linkEl) {
         const href = linkEl.getAttribute('href') || '';
-        const idMatch = href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
+        const idMatch = href.match(/\/view\/.*?-(\d+)(?:\?|$)/) || href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
         if (idMatch && !jobId) {
           jobId = idMatch[1];
         }
@@ -133,7 +133,7 @@ export const scrapeLinkedInSearchResults = (): any[] => {
       const links = document.querySelectorAll('a[href*="/view/"], a[href*="currentJobId="]');
       links.forEach(link => {
         const href = link.getAttribute('href') || '';
-        const idMatch = href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
+        const idMatch = href.match(/\/view\/.*?-(\d+)(?:\?|$)/) || href.match(/\/view\/(\d+)/) || href.match(/currentJobId=(\d+)/);
         if (idMatch) {
           const jobId = idMatch[1];
           const cardParent = link.closest('li, div[class*="card"]');

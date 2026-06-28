@@ -65,26 +65,33 @@ export const scrapeIndeed = (): any => {
 export const scrapeIndeedSearchResults = (): any[] => {
   try {
     const jobs: any[] = [];
-    const cards = document.querySelectorAll('.job_seen_beacon, td.resultContent, div.jobsearch-SerpJobCard');
+    const cards = document.querySelectorAll(
+      '.job_seen_beacon, td.resultContent, div.jobsearch-SerpJobCard, [class*="job_seen_beacon"], [class*="resultContent"]'
+    );
     
     cards.forEach(card => {
-      const titleEl = card.querySelector('h2.jobTitle a, a.jcs-JobDetails, a[href*="/rc/clk"]');
+      const titleEl = card.querySelector('h2.jobTitle a, a.jcs-JobDetails, a[href*="/rc/clk"], a[href*="/viewjob"]');
       const role = titleEl ? titleEl.textContent?.trim() : '';
       let apply_link = titleEl ? (titleEl.getAttribute('href') || '') : '';
       if (apply_link && !apply_link.startsWith('http')) {
         apply_link = `https://www.indeed.com${apply_link}`;
       }
 
-      const companyEl = card.querySelector('[data-testid="company-name"], .companyName, .company_location .companyName');
+      const companyEl = card.querySelector(
+        '[data-testid="company-name"], .companyName, .company_location .companyName, [class*="companyName"]'
+      );
       const company = companyEl ? companyEl.textContent?.trim() : '';
 
-      const locationEl = card.querySelector('[data-testid="text-location"], .companyLocation, .location');
+      const locationEl = card.querySelector(
+        '[data-testid="text-location"], .companyLocation, .location, [class*="companyLocation"]'
+      );
       const location = locationEl ? locationEl.textContent?.trim() : '';
 
-      const salaryEl = card.querySelector('[data-testid="attribute_snippet-html"], .salary-snippet-container, .metadata.salary-snippet-container');
+      const salaryEl = card.querySelector(
+        '[data-testid="attribute_snippet-html"], .salary-snippet-container, .metadata.salary-snippet-container, [class*="salary-snippet"]'
+      );
       const salary = salaryEl ? salaryEl.textContent?.trim() : '';
 
-      // Get Indeed Job Key if available
       let jobId = '';
       const jkMatch = apply_link.match(/jk=([^&]+)/) || apply_link.match(/\/rc\/clk\?jk=([^&]+)/);
       if (jkMatch) {
@@ -97,8 +104,8 @@ export const scrapeIndeedSearchResults = (): any[] => {
       if (role && company && apply_link) {
         jobs.push({
           jobId: jobId || Math.random().toString(),
-          role,
-          company,
+          role: role.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+          company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
           location: location || 'Remote',
           salary: salary || 'Not Specified',
           apply_link,
@@ -106,6 +113,42 @@ export const scrapeIndeedSearchResults = (): any[] => {
         });
       }
     });
+
+    // Fallback: search DOM globally for any viewjob / rc/clk links if no cards matched
+    if (jobs.length === 0) {
+      const links = document.querySelectorAll('a[href*="/viewjob"], a[href*="/rc/clk"]');
+      links.forEach(link => {
+        let apply_link = link.getAttribute('href') || '';
+        if (apply_link && !apply_link.startsWith('http')) {
+          apply_link = `https://www.indeed.com${apply_link}`;
+        }
+        
+        const jkMatch = apply_link.match(/jk=([^&]+)/) || apply_link.match(/\/rc\/clk\?jk=([^&]+)/);
+        const jobId = jkMatch ? jkMatch[1] : Math.random().toString();
+        
+        const cardParent = link.closest('li, div[class*="job"], div[class*="result"]');
+        if (cardParent) {
+          const role = link.textContent?.trim() || 'Software Role';
+          const companyEl = cardParent.querySelector('[data-testid="company-name"], .companyName, [class*="companyName"]');
+          const company = companyEl ? companyEl.textContent?.trim() : 'Indeed Employer';
+          
+          const locationEl = cardParent.querySelector('[data-testid="text-location"], .companyLocation, [class*="location"]');
+          const location = locationEl ? locationEl.textContent?.trim() : 'Remote';
+          
+          if (role && company && !jobs.some(j => j.jobId === jobId)) {
+            jobs.push({
+              jobId,
+              role: role.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+              company: company.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+              location: location || 'Remote',
+              salary: 'Not Specified',
+              apply_link,
+              source: 'Indeed'
+            });
+          }
+        }
+      });
+    }
 
     return jobs;
   } catch (error) {
