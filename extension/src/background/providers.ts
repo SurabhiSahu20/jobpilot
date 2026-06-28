@@ -38,13 +38,27 @@ async function getRemotiveJobs(keyword: string): Promise<any[]> {
       if (!res.ok) throw new Error('Remotive fetch failed');
       const data = await res.json();
       if (data.jobs && Array.isArray(data.jobs)) {
-        const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
         
-        // Filter jobs matching key query terms
-        let filtered = data.jobs.filter((item: any) => {
+        const scored = data.jobs.map((item: any) => {
           const titleLower = item.title.toLowerCase();
-          return words.some(word => titleLower.includes(word));
+          let score = 0;
+          for (const word of words) {
+            if (titleLower.includes(word)) {
+              if (['frontend', 'backend', 'fullstack', 'react', 'node', 'vue', 'angular', 'javascript', 'typescript', 'rails', 'python', 'devops', 'qa', 'mobile', 'ios', 'android'].includes(word)) {
+                score += 15;
+              } else {
+                score += 2;
+              }
+            }
+          }
+          return { item, score };
         });
+
+        let filtered = scored
+          .filter((entry: any) => entry.score > 0)
+          .sort((a: any, b: any) => b.score - a.score)
+          .map((entry: any) => entry.item);
         
         if (filtered.length === 0) {
           filtered = data.jobs;
