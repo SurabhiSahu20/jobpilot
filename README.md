@@ -135,7 +135,14 @@ jobpilot/
 ## How Features Work
 
 ### 🛠️ Auto Job Detection
-When you load a job posting on LinkedIn (`linkedin.com/jobs/view/*`), Naukri, or Wellfound, the extension content script reads the active webpage structure. It extracts relevant details (company, role name, location, estimated salary, skills requirement, and job description text) and saves them dynamically to local storage. Opening the popup lights up the panel instantly.
+When you load a job posting on LinkedIn (`linkedin.com/jobs/view/*`), Indeed, Naukri, or Wellfound, the extension content script reads the active webpage structure. It extracts relevant details (company, role name, location, estimated salary, skills requirement, and job description text) and saves them dynamically to local storage. Opening the popup lights up the panel instantly.
+
+### ✈️ Sequential Background-Tab Search Architecture
+When you search for a job category (like "Software Engineer") from the JobPilot popup dashboard, the extension handles the query via a multi-stage unblockable crawler pipeline:
+1. **Sequential Queue**: The background script creates temporary background tabs (`active: false`) for **LinkedIn**, **Indeed**, **Naukri**, and **Wellfound** one-by-one.
+2. **Unblockable Session Scraping**: Because these tabs load in the user's actual browser instance, they automatically leverage active sessions, location cookies, and standard browser fingerprints, bypassing all Cloudflare Turnstile blocks, guest signup walls, and CAPTCHAs natively.
+3. **Automatic DOM Parser**: The content script loads on each background tab, extracts job matching information (role, company name, location, and apply link), and messages the results back to the background worker. The background tab is then closed automatically.
+4. **Backend API Fallback**: If Chrome's Memory Saver discards the background tabs, the background worker automatically queries the backend `POST /api/jobs/search` API search engine crawler.
 
 ### 📊 Resume Match Fit & Missing Skills
 Once you paste your plain-text resume into the **Resume** tab on the Dashboard, you can select the **Check Fit** button on any job panel. The backend queries Google Gemini (or uses the local skill-mapping fallback) to generate an ATS compatibility score, extract matching vs. missing technologies, and output a candidate recommendations summary.
@@ -171,4 +178,3 @@ We have prepared a **`render.yaml`** file at the root of the project to allow au
 To share the extension with others or submit to the Chrome Web Store:
 1. Locate the **`jobpilot-extension.zip`** file created at the root of the workspace.
 2. Share this ZIP archive with users (they can unzip and click **Load unpacked** inside Chrome) or upload it directly to the **Chrome Web Store Developer Console** to publish the extension.
-
