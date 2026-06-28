@@ -130,6 +130,27 @@ function decodeBingLink(bingLink: string): string {
   return bingLink;
 }
 
+function isActualJobUrl(link: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): boolean {
+  const url = link.toLowerCase();
+  
+  if (source === 'LinkedIn') {
+    return url.includes('linkedin.com/jobs/view/') || url.includes('linkedin.com/jobs/search/');
+  }
+  if (source === 'Indeed') {
+    return url.includes('indeed.com/viewjob') || url.includes('indeed.com/rc/clk');
+  }
+  if (source === 'Naukri') {
+    return url.includes('naukri.com/job-listings');
+  }
+  if (source === 'Wellfound') {
+    if (url.endsWith('wellfound.com/jobs') || url.endsWith('wellfound.com/jobs/')) {
+      return false;
+    }
+    return url.includes('wellfound.com/jobs/') || url.includes('wellfound.com/company/');
+  }
+  return false;
+}
+
 async function searchViaBing(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
   try {
     const query = `${source.toLowerCase()} jobs ${keyword}`;
@@ -150,7 +171,9 @@ async function searchViaBing(keyword: string, source: 'LinkedIn' | 'Indeed' | 'N
     let match;
     let count = 0;
     
-    while ((match = algoRegex.exec(html)) !== null && count < 3) {
+    while ((match = algoRegex.exec(html)) !== null) {
+      if (count >= 3) break;
+      
       const card = match[1];
       const linkMatch = card.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
       if (linkMatch) {
@@ -162,6 +185,7 @@ async function searchViaBing(keyword: string, source: 'LinkedIn' | 'Indeed' | 'N
                                  (source === 'Wellfound' && (link.includes('wellfound.com') || link.includes('angel.co')));
                                  
         if (!isMatchingDomain) continue;
+        if (!isActualJobUrl(link, source)) continue;
         
         const title = linkMatch[2].replace(/<[^>]*>/g, '').trim();
         
