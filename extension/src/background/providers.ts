@@ -33,7 +33,6 @@ async function getRemotiveJobs(keyword: string): Promise<any[]> {
   currentCacheKeyword = keyword;
   remotivePromise = (async () => {
     try {
-      // Query the global search endpoint with the user's keyword to support all roles (management, HR, dev, etc.)
       const url = `https://remotive.com/api/remote-jobs?limit=50&search=${encodeURIComponent(keyword)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Remotive fetch failed');
@@ -41,7 +40,6 @@ async function getRemotiveJobs(keyword: string): Promise<any[]> {
       if (data.jobs && Array.isArray(data.jobs)) {
         const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
         
-        // STRICTION: Every job returned MUST match at least one of the query terms in its title
         const scored = data.jobs.map((item: any) => {
           const titleLower = item.title.toLowerCase();
           let score = 0;
@@ -78,7 +76,6 @@ async function getPartitionedJobs(keyword: string, source: 'LinkedIn' | 'Indeed'
   const allJobs = await getRemotiveJobs(keyword);
   const results: RawSearchResult[] = [];
   
-  // Decide index offsets based on source
   let offset = 0;
   if (source === 'Indeed') offset = 1;
   else if (source === 'Naukri') offset = 2;
@@ -114,20 +111,15 @@ async function getPartitionedJobs(keyword: string, source: 'LinkedIn' | 'Indeed'
 // Helper to query search engines for real live postings when direct scraping is restricted
 async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
   try {
-    const domain = source === 'LinkedIn' 
-      ? 'linkedin.com/jobs/view' 
-      : source === 'Indeed' 
-        ? 'indeed.com/viewjob' 
-        : source === 'Naukri' 
-          ? 'naukri.com/job-listings' 
-          : 'wellfound.com/jobs';
-          
-    const query = `site:${domain} ${keyword}`;
+    // Natural search query that is highly indexed by search engines
+    const query = `${source.toLowerCase()} jobs ${keyword}`;
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
     
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
     if (!res.ok) throw new Error(`DuckDuckGo query status ${res.status}`);
@@ -167,7 +159,11 @@ async function searchViaDuckDuckGo(keyword: string, source: 'LinkedIn' | 'Indeed
       role = role.replace(/Job in.*/i, '').replace(/\|.*/, '').replace(/Careers.*/i, '').trim();
       company = company.replace(/Careers.*/i, '').replace(/Job.*/i, '').trim();
 
-      if (link.includes(source.toLowerCase()) || link.includes('naukri.com') || link.includes('wellfound.com')) {
+      const isMatchingDomain = link.includes(source.toLowerCase()) || 
+                               (source === 'Naukri' && link.includes('naukri.com')) || 
+                               (source === 'Wellfound' && (link.includes('wellfound.com') || link.includes('angel.co')));
+
+      if (isMatchingDomain) {
         results.push({
           jobId: `${source.toLowerCase()}-${Math.floor(Math.random() * 100000)}`,
           role,
@@ -197,7 +193,13 @@ export class LinkedInProvider implements JobSearchProvider {
   async search(keyword: string): Promise<RawSearchResult[]> {
     try {
       const searchUrl = `https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=${encodeURIComponent(keyword)}`;
-      const res = await fetch(searchUrl);
+      const res = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       const html = await res.text();
       
@@ -246,7 +248,12 @@ export class LinkedInProvider implements JobSearchProvider {
         if (role && company) {
           let description = `Position at ${company}.`;
           try {
-            const descRes = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/jobDetail/${jobId}`);
+            const descRes = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/jobDetail/${jobId}`, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
+              }
+            });
             if (descRes.ok) {
               const descHtml = await descRes.text();
               const descRegex = /<div[^>]*class="[^"]*?description__text[^"]*"[^>]*>([\s\S]*?)<\/div>/;
@@ -278,9 +285,17 @@ export class LinkedInProvider implements JobSearchProvider {
         }
       }
       if (jobs.length > 0) return jobs;
+      
+      // Fallback 1: Try search engine query for LinkedIn results
+      const ddgResults = await searchViaDuckDuckGo(keyword, 'LinkedIn');
+      if (ddgResults.length > 0) return ddgResults;
+
+      // Fallback 2: Partitioned Remotive query
       return await getPartitionedJobs(keyword, 'LinkedIn');
     } catch (error) {
       console.warn('LinkedIn search provider failed. Using search engine fallback.', error);
+      const ddgResults = await searchViaDuckDuckGo(keyword, 'LinkedIn');
+      if (ddgResults.length > 0) return ddgResults;
       return await getPartitionedJobs(keyword, 'LinkedIn');
     }
   }
@@ -295,7 +310,13 @@ export class IndeedProvider implements JobSearchProvider {
       const formattedKeyword = encodeURIComponent(keyword);
       const url = `https://www.indeed.com/jobs?q=${formattedKeyword}&l=`;
       
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      });
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
       const html = await response.text();
       
@@ -335,6 +356,8 @@ export class IndeedProvider implements JobSearchProvider {
       throw new Error('No jobs parsed from Indeed page.');
     } catch (error) {
       console.log('Indeed Provider: Scrape blocked. Utilizing search engine parser.');
+      const ddgResults = await searchViaDuckDuckGo(keyword, 'Indeed');
+      if (ddgResults.length > 0) return ddgResults;
       return await getPartitionedJobs(keyword, 'Indeed');
     }
   }

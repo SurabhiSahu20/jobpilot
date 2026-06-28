@@ -21,8 +21,7 @@ const setupHeaderRules = () => {
           ]
         },
         condition: {
-          urlFilter: 'linkedin.com',
-          resourceTypes: ['xmlhttprequest']
+          urlFilter: 'linkedin.com'
         }
       },
       {
@@ -36,8 +35,7 @@ const setupHeaderRules = () => {
           ]
         },
         condition: {
-          urlFilter: 'indeed.com',
-          resourceTypes: ['xmlhttprequest']
+          urlFilter: 'indeed.com'
         }
       },
       {
@@ -51,8 +49,7 @@ const setupHeaderRules = () => {
           ]
         },
         condition: {
-          urlFilter: 'duckduckgo.com',
-          resourceTypes: ['xmlhttprequest']
+          urlFilter: 'duckduckgo.com'
         }
       }
     ];
