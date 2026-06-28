@@ -133,22 +133,28 @@ function decodeBingLink(bingLink: string): string {
 function isActualJobUrl(link: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): boolean {
   const url = link.toLowerCase();
   
-  if (source === 'LinkedIn') {
-    return url.includes('linkedin.com/jobs/view/') || url.includes('linkedin.com/jobs/search/');
+  const rejectKeywords = [
+    'play.google.com', 'apps.apple.com', 'wikipedia.org', 'facebook.com', 
+    '/login', '/signup', '/auth', 'linkedin.com/feed', 'linkedin.com/check',
+    'my.naukri.com', 'naukri.com/nlogin', 'bestjobsearchapps.com', 'twitter.com'
+  ];
+  if (rejectKeywords.some(kw => url.includes(kw))) {
+    return false;
   }
-  if (source === 'Indeed') {
-    return url.includes('indeed.com/viewjob') || url.includes('indeed.com/rc/clk');
+
+  const rootDomains = [
+    'https://www.linkedin.com', 'https://www.linkedin.com/',
+    'https://in.linkedin.com', 'https://in.linkedin.com/',
+    'https://www.indeed.com', 'https://www.indeed.com/',
+    'https://in.indeed.com', 'https://in.indeed.com/',
+    'https://www.naukri.com', 'https://www.naukri.com/',
+    'https://wellfound.com', 'https://wellfound.com/'
+  ];
+  if (rootDomains.includes(url) || rootDomains.includes(url + '/')) {
+    return false;
   }
-  if (source === 'Naukri') {
-    return url.includes('naukri.com/job-listings');
-  }
-  if (source === 'Wellfound') {
-    if (url.endsWith('wellfound.com/jobs') || url.endsWith('wellfound.com/jobs/')) {
-      return false;
-    }
-    return url.includes('wellfound.com/jobs/') || url.includes('wellfound.com/company/');
-  }
-  return false;
+
+  return true;
 }
 
 async function searchViaBing(keyword: string, source: 'LinkedIn' | 'Indeed' | 'Naukri' | 'Wellfound'): Promise<RawSearchResult[]> {
@@ -299,7 +305,7 @@ export class LinkedInProvider implements JobSearchProvider {
           try {
             const descRes = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/jobDetail/${jobId}`, {
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
               }
             });
